@@ -1,1 +1,5 @@
 TO DO
+
+Drosophila serrata females were collected from a single endemic population in Brisbane, Queensland, Australia (Latitude: -27.45922, Longitude: 152.97768) in 2011. Lines were immediately isogenised via 20 generations of full-sib mating to preserve natural genetic variation. 110 lines were finally established and sequenced.
+
+partialS/HIC <https://github.com/xanderxue/partialSHIC> was used to scan the whole genomes of 110 lines to look for selective sweeps: completed soft sweeps, completed hard sweeps, partial soft sweeps, partial hard sweeps, and their linked regions. 
