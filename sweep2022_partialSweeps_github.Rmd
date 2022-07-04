@@ -1,0 +1,3814 @@
+
+
+
+# Stairway
+
+## Intron region
+
+Short intronic regions (<120bp) `short_intron_sorted.bed` were extracted based on `new_annotation_woFasta_major.sorted.gff`
+
+
+
+```{bash}
+# cd ~/doveGenome/newAnno
+# head -6 ../scf1mbp.txt > chromSizes.txt
+# awk 'OFS="\t" {print $1, "0", $2}' chromSizes.txt | sort -k1,1 -k2,2n > chromSizes.bed
+# 
+# for ss in $(cut -f1 chromSizes.txt);do
+#     echo ${ss}
+#     awk -v a=${ss} '{if($1==a){print $0}}' new_annotation_woFasta.gff >> new_annotation_woFasta_major.gff
+# done
+# 
+# 
+# cat new_annotation_woFasta_major.gff | awk '$1 ~ /^#/ {print $0;next} {print $0 | "sort -k1,1 -k4,4n -k5,5n"}' > new_annotation_woFasta_major.sorted.gff
+# bedtools complement -i new_annotation_woFasta_major.sorted.gff -g chromSizes.txt > intergenic_sorted.bed
+# 
+# 
+# awk 'BEGIN{OFS="\t"}$1~/^#/ {print $0;next} {if ($3 == "exon") {print $1, $4-1, $5}}' new_annotation_woFasta_major.sorted.gff > exon_sorted.bed
+# bedtools complement -i <(cat exon_sorted.bed intergenic_sorted.bed | sort -k1,1 -k2,2n) -g chromSizes.txt > intron_sorted.bed
+# 
+# awk '{a=$3-$2+1;if(a<120){print $0}}' intron_sorted.bed > short_intron_sorted.bed
+```
+
+
+
+
+
+```{bash}
+cd ~/myData/phd/p2/stairway
+
+extractSNP(){
+    t1=${1##*/}
+    vid=${t1%%.*}_short_intron
+    vcftools --vcf ${1} --bed short_intron_sorted.bed \
+    --out ${vid} --recode --keep-INFO-all
+    bgzip -c ${vid}.recode.vcf > ${vid}.recode.vcf.gz
+    tabix -p vcf ${vid}.recode.vcf.gz
+}
+
+export -f extractSNP
+
+find ../rawData/ -maxdepth 1 -name "*ScA8VGg_*.vcf" | parallel -j 7 extractSNP
+    
+    
+```
+    
+    
+    
+## Estimate  SFS
+    
+    
+### VCF to SFS
+    
+```{r}
+library(data.table)
+
+
+vcfs <- list.files(pattern = 'ScA8VGg_.*_short_intron.recode.vcf.gz$')
+
+st_dt <- data.table()
+
+for(vcf in vcfs){
+    iscf <- stringr::str_replace_all(vcf,'.recode.vcf.gz','')
+    aa <- fread(vcf, skip=11L, header=F)
+    aa <- aa[,c(1,2,10:119)]
+    t1 <- apply(aa[,3:112],1, function(x) grepl("1/1",x))
+    s1 <- apply(t1,2,sum)
+    
+    t0 <- apply(aa[,3:112],1, function(x) grepl("0/0",x))
+    s0 <- apply(t0,2,sum)
+    
+    st <- data.table("ref"=s0, "alt"=s1)
+    st[,hom:=ref + alt]
+    # adjust heter site, avoid remove het
+    st[,alt_adj:=round(alt/hom*110)]
+    st[,scf:=iscf]
+    st_dt <- rbind(st_dt, st)
+}
+
+st_dt[alt_adj>55, alt_adj:=110-alt_adj]
+
+
+sfs <- table(st_dt[alt_adj!=0 & scf !='ScA8VGg_594_short_intron', alt_adj]) # exclude sexual chromosome
+sfs_out <- paste0(as.integer(sfs),collapse = " ")
+writeLines(sfs_out, "all_autosomal.sfs")
+
+```
+    
+    
+    
+```{bash}
+cd ~/myData/phd/p2/stairway
+git clone https://github.com/xiaoming-liu/stairway-plot-v2.git
+# ...
+
+cd stairway-plot-v2/stairway_plot_v2.1.1
+
+# seq short intron total length
+# 1:   ScA8VGg_76;HRSCAF=120 463119
+# 2:  ScA8VGg_628;HRSCAF=890 309077
+# 4: ScA8VGg_785;HRSCAF=1140 405202
+# 5:  ScA8VGg_542;HRSCAF=776 250638
+# 6: ScA8VGg_718;HRSCAF=1046  76740
+
+
+
+java -cp stairway_plot_es Stairbuilder two-epoch.blueprint # do no change file name
+bash two-epoch.blueprint.sh
+```
+
+  
+# PartialSHIC - constNe
+        
+        
+    
+```
+lapply(str_split(names(aa),'_'), function(s) s[1]) %>% unique() %>% unlist
+[1] "pi"                 "thetaW"             "tajD"               "thetaH"
+[5] "fayWuH"             "HapCount"           "H1"                 "H12"
+[9] "H2/H1"              "ZnS"                "Omega"              "iHSMean"
+[13] "iHSMax"             "iHSOutFrac"         "nSLMean"            "nSLMax"
+[17] "nSLOutFrac"         "distVar"            "distSkew"           "distKurt"
+
+[21] "HAF-Mean"           "HAF-Median"         "HAF-Mode"           "HAF-Lower95%"
+[25] "HAF-Lower50%"       "HAF-Upper50%"       "HAF-Upper95%"       "HAF-Max"
+[29] "HAF-Var"            "HAF-SD"             "HAF-Skew"           "HAF-Kurt"
+[33] "HAFunique-Mean"     "HAFunique-Median"   "HAFunique-Mode"     "HAFunique-Lower95%"
+[37] "HAFunique-Lower50%" "HAFunique-Upper50%" "HAFunique-Upper95%" "HAFunique-Max"
+[41] "HAFunique-Var"      "HAFunique-SD"       "HAFunique-Skew"     "HAFunique-Kurt"
+[45] "phi-Mean"           "phi-Median"         "phi-Mode"           "phi-Lower95%"
+[49] "phi-Lower50%"       "phi-Upper50%"       "phi-Upper95%"       "phi-Max"
+[53] "phi-Var"            "phi-SD"             "phi-Skew"           "phi-Kurt"
+[57] "kappa-Mean"         "kappa-Median"       "kappa-Mode"         "kappa-Lower95%"
+[61] "kappa-Lower50%"     "kappa-Upper50%"     "kappa-Upper95%"     "kappa-Max"
+[65] "kappa-Var"          "kappa-SD"           "kappa-Skew"         "kappa-Kurt"
+[69] "SFS-Mean"           "SFS-Median"         "SFS-Mode"           "SFS-Lower95%"
+[73] "SFS-Lower50%"       "SFS-Upper50%"       "SFS-Upper95%"       "SFS-Max"
+[77] "SFS-Var"            "SFS-SD"             "SFS-Skew"           "SFS-Kurt"
+[81] "SAFE-Mean"          "SAFE-Median"        "SAFE-Mode"          "SAFE-Lower95%"
+[85] "SAFE-Lower50%"      "SAFE-Upper50%"      "SAFE-Upper95%"      "SAFE-Max"
+[89] "SAFE-Var"           "SAFE-SD"            "SAFE-Skew"          "SAFE-Kurt"
+
+```
+    
+    
+    
+    
+```
+Source code change log:
+    
+    - training_sample_FVs.py:line67, fixed to 2000
+
+    - fix bugs in empirical_convert_to_FVs.py:24-28 in parsing VCF file format. ancestral fasta file must split by chromosome
+
+```
+
+
+## Generate training data
+    
+    
+```{r}
+#setwd('~/myData/phd/p2/discoal_simu')
+options(scipen = 999)
+library("parallel")
+library("stringr")
+
+DISCOAL = '~/discoal/discoal' 
+TIMES = 2000
+
+Ne = 1*10^6
+len = 55000
+
+# recombination rate
+rr = 5*10^(-9)
+Pre_mean <- 4*Ne*rr*len
+Pre_upper <- Pre_mean*3
+# mutation rate mu: 
+mu_low = 1e-9
+mu_high = 1.6e-8
+Pt_low <- 4*Ne*mu_low*len
+Pt_high <- 4*Ne*mu_high*len
+# selection coefficient s: 0.0001-0.1
+# strength of selection: alpha = 2*Ne*s
+s_low = 0.00001
+s_high = 0.01
+Pa_low <- 2*Ne*s_low
+Pa_high <- 2*Ne*s_high
+
+# tau: time of fixation looking backward in time - units: 4N
+Pu_low <- 0.0
+Pu_high <- 0.01
+
+# for soft seletive sweep
+# first frequency at which selection acts on allele
+Pf_low <- 0.01
+Pf_high <- 0.2
+
+
+# partial sweep
+# frequency at sampling
+Pc_low <- 0.20 
+Pc_high <- 0.99
+
+
+sweep_pos <- c(0.04, 0.14, 0.23, 0.32, 0.41, 0.50, 
+               0.60, 0.68, 0.77, 0.86, 0.95)
+# for NEUTRAL
+runNeutral <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} | gzip > spNeut.msOut.gz &")
+system(runNeutral)  
+
+# for complete HARD
+runHard <- function(i){
+    outname <- str_glue("spHard_{i-1}.msOut.gz")
+    if(i==6){
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }else{
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }
+    
+    #cat(sm_cmd,"\n")
+    system(sm_cmd)
+}
+mclapply(1:11, runHard, mc.cores = 11)
+
+
+# for complete SOFT
+runSoft <- function(i){
+    outname <- str_glue("spSoft_{i-1}.msOut.gz")
+    if(i==6){
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} -ws 0  -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }else{
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} -ws 0  -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }
+    # cat(sm_cmd,"\n")
+    system(sm_cmd)
+}
+mclapply(1:11, runSoft, mc.cores = 11)
+
+
+# for partial HARD
+runPHard <- function(i){
+    outname <- str_glue("spPartialHard_{i-1}.msOut.gz")
+    if(i==6){
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }else{
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }
+    
+    # cat(sm_cmd,"\n")
+    system(sm_cmd)
+}
+mclapply(1:11, runPHard, mc.cores = 11)
+
+
+# for partial SOFT
+runPSoft <- function(i){
+    outname <- str_glue("spPartialSoft_{i-1}.msOut.gz")
+    if(i==6){
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }else{
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }
+    
+    #cat(sm_cmd,"\n")
+    system(sm_cmd)
+}
+mclapply(1:11, runPSoft, mc.cores = 11)
+
+```
+    
+    
+    
+    
+## Run training
+
+```{bash}
+conda activate py2
+
+
+####
+gen_fvec() {
+    python2 ~/partialSHIC/calcStatsAndDafForEachSnpSingleMsFile.py ${1} 55000 > ${1/.msOut.gz/}_stats.txt
+    python2 ~/partialSHIC/training_convert_to_FVs.py ${1} \
+    ScA8VGg_76,ScA8VGg_785,ScA8VGg_628,ScA8VGg_594,ScA8VGg_542,ScA8VGg_718 \
+    5000 11 0.25 \
+    0.003 ${1/.msOut.gz/}_stats.txt \
+    ../empiricalDat/top6.mask.fa \
+    ../empiricalDat/top6.anc.fa \
+    ./ \
+    ${1/.msOut.gz/}.fvec
+    
+}
+export -f gen_fvec
+ls *msOut.gz | parallel -j 16 gen_fvec
+
+
+#####
+rm *stats
+mkdir FVs
+mv *fvec FVs
+
+python2 ~/partialSHIC/training_sample_FVs.py \
+./FVs/spNeut.fvec \
+./FVs/spHard_ \
+./FVs/spSoft_ \
+./FVs/spPartialHard_ \
+./FVs/spPartialSoft_ \
+5 0,1,2,3,4,6,7,8,9,10 \
+./ \
+neut.fvec,hard.fvec,linkedHard.fvec,soft.fvec,linkedSoft.fvec,partialHard.fvec,linkedPartialHard.fvec,partialSoft.fvec,linkedPartialSoft.fvec
+
+#####
+python3 ~/partialSHIC/training_deep_learning.py ./ \
+neut.fvec,hard.fvec,linkedHard.fvec,soft.fvec,linkedSoft.fvec,partialHard.fvec,linkedPartialHard.fvec,partialSoft.fvec,linkedPartialSoft.fvec \
+11 92 0.1 \
+constNe.hdf5 \
+constNe.json \
+constNe.npy 
+
+```
+    
+    
+    
+    
+    
+## Run testing
+
+
+test on self
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/constNe
+mkdir test_self && cd test_self
+ln -s ../FVs/* .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../constNe.npy \
+./ \
+11 92 \
+./ \
+constNe_accuracy \
+constNe_confusion_matrix.pdf
+```
+
+
+test on self-new data
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/constNe/test_self_newDat
+mkdir FVs && cd FVs
+mv ../*fvec .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../../constNe.npy \
+./ \
+11 92 \
+./ \
+constNe_onNewDat_accuracy \
+constNe_onNewDat_confusion_matrix.pdf
+
+```
+    
+    
+    
+    
+    
+test on expansionNe
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/constNe
+mkdir test_expansionNe && cd test_expansionNe
+ln -s ../../expansionNe/FVs/* .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../constNe.npy \
+./ \
+11 92 \
+./ \
+constNe_onExpansionNe_accuracy \
+constNe_onExpansionNe_confusion_matrix.pdf
+```
+    
+    
+    
+    
+test on shortSevere
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/constNe
+mkdir test_shortSevere && cd test_shortSevere
+ln -s ../../shortSevere/FVs/* .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../constNe.npy \
+./ \
+11 92 \
+./ \
+constNe_onShortSevere_accuracy \
+constNe_onShortSevere_confusion_matrix.pdf
+```
+    
+    
+    
+test on longShallow
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/constNe
+mkdir test_longShallow && cd test_longShallow
+ln -s ../../longShallow/FVs/* .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../constNe.npy \
+./ \
+11 92 \
+./ \
+constNe_onLongShallow_accuracy \
+constNe_onLongShallow_confusion_matrix.pdf
+```
+    
+    
+    
+    
+# PartialSHIC - longShallow
+
+
+
+## Generate training data
+
+
+```{r}
+#setwd('~/myData/phd/p2/discoal_simu')
+options(scipen = 999)
+library("parallel")
+library("stringr")
+
+DISCOAL = '~/discoal/discoal' 
+TIMES = 2000
+
+Ne = 1*10^6
+len = 55000
+
+# recombination rate
+rr = 5*10^(-9)
+Pre_mean <- 4*Ne*rr*len
+Pre_upper <- Pre_mean*3
+# mutation rate mu: 
+mu_low = 1e-9
+mu_high = 1.6e-8
+Pt_low <- 4*Ne*mu_low*len
+Pt_high <- 4*Ne*mu_high*len
+# selection coefficient s: 0.0001-0.1
+# strength of selection: alpha = 2*Ne*s
+s_low = 0.00001
+s_high = 0.01
+Pa_low <- 2*Ne*s_low
+Pa_high <- 2*Ne*s_high
+
+# tau: time of fixation looking backward in time - units: 4N
+Pu_low <- 0.0
+Pu_high <- 0.01
+
+# for soft seletive sweep
+# first frequency at which selection acts on allele
+Pf_low <- 0.01
+Pf_high <- 0.2
+
+
+# partial sweep
+# frequency at sampling
+Pc_low <- 0.20 
+Pc_high <- 0.99
+
+bottleneck <- "-en 0.16 0 0.589 -en 0.216 0 1.47" # long shallow
+#bottleneck <- "-en 0.33 0 0.033 -en 0.34 0 1.00" # short severe
+
+
+
+
+sweep_pos <- c(0.04, 0.14, 0.23, 0.32, 0.41, 0.50, 
+               0.60, 0.68, 0.77, 0.86, 0.95)
+# for NEUTRAL
+runNeutral <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} | gzip > spNeut.msOut.gz &")
+system(runNeutral)  
+
+# for complete HARD
+runHard <- function(i){
+    outname <- str_glue("spHard_{i-1}.msOut.gz")
+    if(i==6){
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }else{
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }
+    
+    #cat(sm_cmd,"\n")
+    system(sm_cmd)
+}
+mclapply(1:11, runHard, mc.cores = 11)
+
+
+# for complete SOFT
+runSoft <- function(i){
+    outname <- str_glue("spSoft_{i-1}.msOut.gz")
+    if(i==6){
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0  -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }else{
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0  -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }
+    
+    # cat(sm_cmd,"\n")
+    system(sm_cmd)
+}
+mclapply(1:11, runSoft, mc.cores = 11)
+
+
+# for partial HARD
+runPHard <- function(i){
+    outname <- str_glue("spPartialHard_{i-1}.msOut.gz")
+    if(i==6){
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }else{
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }
+    
+    #cat(sm_cmd,"\n")
+    system(sm_cmd)
+}
+mclapply(1:11, runPHard, mc.cores = 11)
+
+
+# for partial SOFT
+runPSoft <- function(i){
+    outname <- str_glue("spPartialSoft_{i-1}.msOut.gz")
+    if(i==6){
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname} &")   
+    }else{
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }
+    
+    #cat(sm_cmd,"\n")
+    system(sm_cmd)
+}
+mclapply(1:11, runPSoft, mc.cores = 11)
+
+```
+    
+    
+## Run training
+
+```{bash}
+conda activate py2
+
+####
+gen_fvec() {
+    python2 ~/partialSHIC/calcStatsAndDafForEachSnpSingleMsFile.py ${1} 55000 > ${1/.msOut.gz/}_stats.txt
+    python2 ~/partialSHIC/training_convert_to_FVs.py ${1} \
+    ScA8VGg_76,ScA8VGg_785,ScA8VGg_628,ScA8VGg_594,ScA8VGg_542,ScA8VGg_718 \
+    5000 11 0.25 \
+    0.003 ${1/.msOut.gz/}_stats.txt \
+    ../empiricalDat/top6.mask.fa \
+    ../empiricalDat/top6.anc.fa \
+    ./ \
+    ${1/.msOut.gz/}.fvec
+    
+}
+export -f gen_fvec
+
+#ls spNeut.msOut.gz | parallel -j 1 gen_fvec
+
+ls *.msOut.gz | parallel -j 16 gen_fvec
+
+
+#####
+rm *stats
+rm *stats.txt
+mkdir FVs
+mv *fvec FVs
+
+python2 ~/partialSHIC/training_sample_FVs.py \
+./FVs/spNeut.fvec \
+./FVs/spHard_ \
+./FVs/spSoft_ \
+./FVs/spPartialHard_ \
+./FVs/spPartialSoft_ \
+5 0,1,2,3,4,6,7,8,9,10 \
+./ \
+neut.fvec,hard.fvec,linkedHard.fvec,soft.fvec,linkedSoft.fvec,partialHard.fvec,linkedPartialHard.fvec,partialSoft.fvec,linkedPartialSoft.fvec
+
+#####
+python3 ~/partialSHIC/training_deep_learning.py ./ \
+neut.fvec,hard.fvec,linkedHard.fvec,soft.fvec,linkedSoft.fvec,partialHard.fvec,linkedPartialHard.fvec,partialSoft.fvec,linkedPartialSoft.fvec \
+11 92 0.1 \
+longShallow.hdf5 \
+longShallow.json \
+longShallow.npy 
+```
+    
+    
+    
+## Run testing
+
+
+test on self
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/longShallow
+mkdir test_self && cd test_self
+ln -s ../FVs/* .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../longShallow.npy \
+./ \
+11 92 \
+./ \
+longShallow_accuracy \
+longShallow_confusion_matrix.pdf
+```
+    
+    
+    
+test on self-new data
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/longShallow/test_self_newDat
+mkdir FVs && cd FVs
+mv ../*fvec .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../../longShallow.npy \
+./ \
+11 92 \
+./ \
+longShallow_onNewDat_accuracy \
+longShallow_onNewDat_confusion_matrix.pdf
+
+```
+    
+    
+    
+test on expansionNe
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/longShallow
+mkdir test_expansionNe && cd test_expansionNe
+ln -s ../../expansionNe/FVs/* .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../longShallow.npy \
+./ \
+11 92 \
+./ \
+longShallow_onExpansionNe_accuracy \
+longShallow_onExpansionNe_confusion_matrix.pdf
+```
+    
+    
+test on constNe
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/longShallow
+mkdir test_constNe && cd test_constNe
+ln -s ../../constNe/FVs/* .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../longShallow.npy \
+./ \
+11 92 \
+./ \
+longShallow_onConstNe_accuracy \
+longShallow_onConstNe_confusion_matrix.pdf
+```
+    
+    
+test on shortSevere
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/longShallow
+mkdir test_shortSevere && cd test_shortSevere
+ln -s ../../shortSevere/FVs/* .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../longShallow.npy \
+./ \
+11 92 \
+./ \
+longShallow_onShortSevere_accuracy \
+longShallow_onShortSevere_confusion_matrix.pdf
+```
+    
+    
+    
+    
+# PartialSHIC - shortSevere
+
+
+
+## Generate training data
+
+
+
+```{r}
+#setwd('~/myData/phd/p2/discoal_simu')
+options(scipen = 999)
+library("parallel")
+library("stringr")
+
+DISCOAL = '~/discoal/discoal'
+# for neutral; for sweep: TIMEs/5, must (TIMEs/5)*11 > TIMEs
+# I modified the sampling function in training_sample_FVs.py to 
+# make the final training size the same (TIMES) for each sweep state
+TIMES = 2000
+
+Ne = 1*10^6
+len = 55000
+
+# recombination rate
+rr = 5*10^(-9)
+Pre_mean <- 4*Ne*rr*len
+Pre_upper <- Pre_mean*3
+# mutation rate mu: 
+mu_low = 1e-9
+mu_high = 1.6e-8
+Pt_low <- 4*Ne*mu_low*len
+Pt_high <- 4*Ne*mu_high*len
+# selection coefficient s: 0.0001-0.1
+# strength of selection: alpha = 2*Ne*s
+s_low = 0.00001
+s_high = 0.01
+Pa_low <- 2*Ne*s_low
+Pa_high <- 2*Ne*s_high
+
+# tau: time of fixation looking backward in time - units: 4N
+Pu_low <- 0.0
+Pu_high <- 0.01
+
+# for soft seletive sweep
+# first frequency at which selection acts on allele
+Pf_low <- 0.01
+Pf_high <- 0.2
+
+
+# partial sweep
+# frequency at sampling
+Pc_low <- 0.20 
+Pc_high <- 0.99
+
+#bottleneck <- "-en 0.16 0 0.589 -en 0.216 0 1.47" # long shallow
+bottleneck <- "-en 0.33 0 0.033 -en 0.34 0 1.00" # short severe
+
+
+
+
+sweep_pos <- c(0.04, 0.14, 0.23, 0.32, 0.41, 0.50, 
+               0.60, 0.68, 0.77, 0.86, 0.95)
+# for NEUTRAL
+runNeutral <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} | gzip > spNeut.msOut.gz &")
+system(runNeutral)  
+
+# for complete HARD
+runHard <- function(i){
+    outname <- str_glue("spHard_{i-1}.msOut.gz")
+    if(i==6){
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }else{
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }
+    
+    # cat(sm_cmd,"\n")
+    system(sm_cmd)
+}
+mclapply(1:11, runHard, mc.cores = 11)
+
+
+# for complete SOFT
+runSoft <- function(i){
+    outname <- str_glue("spSoft_{i-1}.msOut.gz")
+    if(i==6){
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0  -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }else{
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0  -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }
+    
+    #cat(sm_cmd,"\n")
+    system(sm_cmd)
+}
+mclapply(1:11, runSoft, mc.cores = 11)
+
+
+# for partial HARD
+runPHard <- function(i){
+    outname <- str_glue("spPartialHard_{i-1}.msOut.gz")
+    if(i==6){
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }else{
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }
+    
+    # cat(sm_cmd,"\n")
+    system(sm_cmd)
+}
+mclapply(1:11, runPHard, mc.cores = 11)
+
+
+# for partial SOFT
+runPSoft <- function(i){
+    outname <- str_glue("spPartialSoft_{i-1}.msOut.gz")
+    if(i==6){
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }else{
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }
+    
+    # cat(sm_cmd,"\n")
+    system(sm_cmd)
+}
+mclapply(1:11, runPSoft, mc.cores = 11)
+
+```
+    
+    
+## Run training
+
+
+```{bash}
+conda activate py2
+
+####
+gen_fvec() {
+    python2 ~/partialSHIC/calcStatsAndDafForEachSnpSingleMsFile.py ${1} 55000 > ${1/.msOut.gz/}_stats.txt
+    python2 ~/partialSHIC/training_convert_to_FVs.py ${1} \
+    ScA8VGg_76,ScA8VGg_785,ScA8VGg_628,ScA8VGg_594,ScA8VGg_542,ScA8VGg_718 \
+    5000 11 0.25 \
+    0.003 ${1/.msOut.gz/}_stats.txt \
+    ../empiricalDat/top6.mask.fa \
+    ../empiricalDat/top6.anc.fa \
+    ./ \
+    ${1/.msOut.gz/}.fvec
+    
+}
+export -f gen_fvec
+ls *.msOut.gz | parallel -j 16 gen_fvec
+
+#####
+rm *stats.txt
+mkdir FVs
+mv *fvec FVs
+
+python2 ~/partialSHIC/training_sample_FVs.py \
+./FVs/spNeut.fvec \
+./FVs/spHard_ \
+./FVs/spSoft_ \
+./FVs/spPartialHard_ \
+./FVs/spPartialSoft_ \
+5 0,1,2,3,4,6,7,8,9,10 \
+./ \
+neut.fvec,hard.fvec,linkedHard.fvec,soft.fvec,linkedSoft.fvec,partialHard.fvec,linkedPartialHard.fvec,partialSoft.fvec,linkedPartialSoft.fvec
+
+#####
+python3 ~/partialSHIC/training_deep_learning.py ./ \
+neut.fvec,hard.fvec,linkedHard.fvec,soft.fvec,linkedSoft.fvec,partialHard.fvec,linkedPartialHard.fvec,partialSoft.fvec,linkedPartialSoft.fvec \
+11 92 0.1 \
+shortSevere.hdf5 \
+shortSevere.json \
+shortSevere.npy
+```    
+    
+    
+## Run test
+
+
+test on self
+
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/shortSevere
+mkdir test_self && cd test_self
+ln -s ../FVs/* .
+
+## deep learning on test
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../shortSevere.npy \
+./ \
+11 92 \
+./ \
+shortSevere_accuracy \
+shortSevere_confusion_matrix.pdf
+
+
+```
+    
+    
+test on self-new data
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/shortSevere/test_self_newDat
+mkdir FVs && cd FVs
+mv ../*fvec .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../../shortSevere.npy \
+./ \
+11 92 \
+./ \
+shortSevere_onNewDat_accuracy \
+shortSevere_onNewDat_confusion_matrix.pdf
+```
+    
+    
+    
+    
+test on expansionNe
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/shortSevere
+mkdir test_expansionNe && cd test_expansionNe
+ln -s ../../expansionNe/FVs/* .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../shortSevere.npy \
+./ \
+11 92 \
+./ \
+shortSevere_onExpansionNe_accuracy \
+shortSevere_onExpansionNe_confusion_matrix.pdf
+```
+    
+    
+test on constNe
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/shortSevere
+mkdir test_constNe && cd test_constNe
+ln -s ../../constNe/FVs/* .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../shortSevere.npy \
+./ \
+11 92 \
+./ \
+shortSevere_onConstNe_accuracy \
+shortSevere_onConstNe_confusion_matrix.pdf
+```
+    
+    
+    
+test on longShallow
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/shortSevere
+mkdir test_longShallow && cd test_longShallow
+ln -s ../../longShallow/FVs/* .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../shortSevere.npy \
+./ \
+11 92 \
+./ \
+shortSevere_onLongShallow_accuracy \
+shortSevere_onLongShallow_confusion_matrix.pdf
+```
+    
+    
+    
+    
+    
+    
+    
+# PartialSHIC - expansion
+
+
+
+## Generate training data
+
+
+
+```{r}
+#setwd('~/myData/phd/p2/discoal_simu')
+options(scipen = 999)
+library("parallel")
+library("stringr")
+
+DISCOAL = '~/discoal/discoal' 
+TIMES = 2000
+
+Ne = 1*10^6
+len = 55000
+
+# recombination rate
+rr = 5*10^(-9)
+Pre_mean <- 4*Ne*rr*len
+Pre_upper <- Pre_mean*3
+# mutation rate mu: 
+mu_low = 1e-9
+mu_high = 1.6e-8
+Pt_low <- 4*Ne*mu_low*len
+Pt_high <- 4*Ne*mu_high*len
+# selection coefficient s: 0.0001-0.1
+# strength of selection: alpha = 2*Ne*s
+s_low = 0.00001
+s_high = 0.01
+Pa_low <- 2*Ne*s_low
+Pa_high <- 2*Ne*s_high
+
+# tau: time of fixation looking backward in time - units: 4N
+Pu_low <- 0.0
+Pu_high <- 0.01
+
+# for soft seletive sweep
+# first frequency at which selection acts on allele
+Pf_low <- 0.01
+Pf_high <- 0.2
+
+
+# partial sweep
+# frequency at sampling
+Pc_low <- 0.20 
+Pc_high <- 0.99
+
+# bottleneck <- "-en 0.16 0 0.589 -en 0.216 0 1.47" # long shallow
+# bottleneck <- "-en 0.33 0 0.033 -en 0.34 0 1.00" # short severe
+bottleneck <- "-en 0.00015 0 1.2 -en 0.00075 0 1.6 -en 0.0045 0 1.2 -en 0.006 0 0.7 -en 0.03 0 0.4 -en 0.11 0 0.24 -en 0.175 0 0.2" # expansion, based on stairway
+
+# N0=5e6
+# expansion = '-en {3e3/(4*N0)} 0 {6e6/N0} -en {15e3/(4*N0)} 0 {8e6/N0} -en {90e3/(4*N0)} 0 {6e6/N0} -en {120e3/(4*N0)} 0 {3.5e6/N0} -en {600e3/(4*N0)} 0 {2e6/N0} -en {2200e3/(4*N0)} 0 {1.2e6/N0} -en {3500e3/(4*N0)} 0 {1e6/N0}'
+
+
+sweep_pos <- c(0.04, 0.14, 0.23, 0.32, 0.41, 0.50, 
+               0.60, 0.68, 0.77, 0.86, 0.95)
+# for NEUTRAL
+runNeutral <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} | gzip > spNeut.msOut.gz &")
+system(runNeutral)  
+
+# for complete HARD
+runHard <- function(i){
+    outname <- str_glue("spHard_{i-1}.msOut.gz")
+    if(i==6){
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }else{
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }
+    #cat(sm_cmd,"\n")
+    system(sm_cmd)
+}
+mclapply(1:11, runHard, mc.cores = 11)
+
+
+# for complete SOFT
+runSoft <- function(i){
+    outname <- str_glue("spSoft_{i-1}.msOut.gz")
+    if(i==6){
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0  -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname} &")}
+    else{
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0  -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }   
+    #cat(sm_cmd,"\n")
+    system(sm_cmd)
+}
+mclapply(1:11, runSoft, mc.cores = 11)
+
+
+# for partial HARD
+runPHard <- function(i){
+    outname <- str_glue("spPartialHard_{i-1}.msOut.gz")
+    if(i==6){
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }else{
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -x {sweep_pos[i]} | gzip > {outname} &")  
+    }
+    #cat(sm_cmd,"\n")
+    system(sm_cmd)
+}
+mclapply(1:11, runPHard, mc.cores = 11)
+
+
+# for partial SOFT
+runPSoft <- function(i){
+    outname <- str_glue("spPartialSoft_{i-1}.msOut.gz")
+    if(i==6){
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }else{
+        sm_cmd <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bottleneck} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname} &")
+    }
+    
+    # cat(sm_cmd,"\n")
+    system(sm_cmd)
+}
+mclapply(1:11, runPSoft, mc.cores = 11)
+
+```
+    
+    
+    
+## Run training
+
+```{bash}
+conda activate py2
+
+####
+gen_fvec() {
+    python2 ~/partialSHIC/calcStatsAndDafForEachSnpSingleMsFile.py ${1} 55000 > ${1/.msOut.gz/}_stats.txt
+    python2 ~/partialSHIC/training_convert_to_FVs.py ${1} \
+    ScA8VGg_76,ScA8VGg_785,ScA8VGg_628,ScA8VGg_594,ScA8VGg_542,ScA8VGg_718 \
+    5000 11 0.25 \
+    0.003 ${1/.msOut.gz/}_stats.txt \
+    ../empiricalDat/top6.mask.fa \
+    ../empiricalDat/top6.anc.fa \
+    ./ \
+    ${1/.msOut.gz/}.fvec
+    
+}
+export -f gen_fvec
+ls *msOut.gz | parallel -j 12 gen_fvec
+
+#####
+rm *stats.txt
+mkdir FVs
+mv *fvec FVs
+
+python2 ~/partialSHIC/training_sample_FVs.py \
+./FVs/spNeut.fvec \
+./FVs/spHard_ \
+./FVs/spSoft_ \
+./FVs/spPartialHard_ \
+./FVs/spPartialSoft_ \
+5 0,1,2,3,4,6,7,8,9,10 \
+./ \
+neut.fvec,hard.fvec,linkedHard.fvec,soft.fvec,linkedSoft.fvec,partialHard.fvec,linkedPartialHard.fvec,partialSoft.fvec,linkedPartialSoft.fvec
+
+#####
+python3 ~/partialSHIC/training_deep_learning.py ./ \
+neut.fvec,hard.fvec,linkedHard.fvec,soft.fvec,linkedSoft.fvec,partialHard.fvec,linkedPartialHard.fvec,partialSoft.fvec,linkedPartialSoft.fvec \
+11 92 0.1 \
+expansionNe.hdf5 \
+expansionNe.json \
+expansionNe.npy    
+```
+    
+    
+## Run testing
+
+
+test on self
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/expansionNe
+mkdir test_self && cd test_self
+ln -s ../FVs/* .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../expansionNe.npy \
+./ \
+11 92 \
+./ \
+expansionNe_accuracy \
+expansionNe_confusion_matrix.pdf
+```
+    
+    
+test on self-new data
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/expansionNe/test_self_newDat
+mkdir FVs && cd FVs
+mv ../*fvec .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../../expansionNe.npy \
+./ \
+11 92 \
+./ \
+expansionNe_onNewDat_accuracy \
+expansionNe_onNewDat_confusion_matrix.pdf
+```
+    
+    
+    
+    
+test on constNe
+
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/expansionNe
+mkdir test_constNe && cd test_constNe
+ln -s ../../constNe/FVs/* .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../expansionNe.npy \
+./ \
+11 92 \
+./ \
+expansionNe_onConstNe_accuracy \
+expansionNe_onConstNe_confusion_matrix.pdf
+```
+    
+    
+    
+test on shortSevere
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/expansionNe
+mkdir test_shortSevere && cd test_shortSevere
+ln -s ../../shortSevere/FVs/* .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../expansionNe.npy \
+./ \
+11 92 \
+./ \
+expansionNe_onShortSevere_accuracy \
+expansionNe_onShortSevere_confusion_matrix.pdf
+```
+    
+    
+    
+test on longShallow
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/expansionNe
+mkdir test_longShallow && cd test_longShallow
+ln -s ../../longShallow/FVs/* .
+
+python3 ~/partialSHIC/testing_deep_learning_classify.py \
+../expansionNe.npy \
+./ \
+11 92 \
+./ \
+expansionNe_onLongShallow_accuracy \
+expansionNe_onLongShallow_confusion_matrix.pdf
+```
+    
+    
+    
+    
+    
+    
+    
+    
+# Empirical data
+
+
+## Convert vcf to h5 format
+
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/empiricalDat
+
+cp ../../ihs/ScA8VGg_*.filtered.vcf.gz .
+sed -i 's/\(ScA8VGg_[0-9]*\);HRSCAF=[0-9]*/\1/g' top6.anc.fa
+sed -i 's/\(ScA8VGg_[0-9]*\);HRSCAF=[0-9]*/\1/g' top6.mask.fa
+
+
+for ff in $(ls *filtered.vcf.gz);do
+echo ${ff}
+mv ${ff} ${ff/.vcf.gz/.longScfName.vcf.gz}
+zcat ${ff/.vcf.gz/.longScfName.vcf.gz} | sed 's/\(ScA8VGg_[0-9]*\);HRSCAF=[0-9]*/\1/g' | gzip >  ${ff}
+mv ${ff/.vcf.gz/.longScfName.vcf.gz}
+done
+
+# zcat ScA8VGg_718.filtered.vcf.gz | sed 's/\(ScA8VGg_[0-9]*\);HRSCAF=[0-9]*/\1/g' >  ScA8VGg_718.filtered.vcf
+
+
+
+```
+    
+    
+Fix a smaller proporion biallelic alleles and remove triallelic alleles
+
+```{bash}
+for ff in $(ls ScA8VGg_*.filtered.vcf.gz);do
+echo $ff
+vcftools --gzvcf ${ff} --min-alleles 2 --max-alleles 2 --recode --stdout | bgzip -c > ${ff/.vcf.gz/.bi.vcf.gz}
+done
+
+```
+    
+```{r}
+
+ff = 'ScA8VGg_718.filtered.vcf.gz'
+
+aa <- fread(ff, header=F, sep='\t', skip=11L)
+
+aa_biallelic <- aa[nchar(V5)==3]
+
+
+```
+    
+    
+    
+    
+    
+    
+
+```{python}
+# convert vcf file into hdf5 format
+# http://alimanfoo.github.io/2017/06/14/read-vcf.html
+# https://scikit-allel.readthedocs.io/en/latest/io.html#allel.vcf_to_hdf5
+import os
+import allel
+
+vcfs = [x for x in os.listdir('.') if x.startswith('ScA8VGg') and x.endswith('bi.vcf.gz')]
+# for root, dirs, files in os.walk('../../ihs'):
+#     for name in files:
+#         if name.startswith('ScA8VGg_') and name.endswith('filtered.vcf.gz'):
+#             vcfs.append(os.path.join(root, name))
+
+for vcf in vcfs:
+    scfid = vcf.split('/')[-1].replace('.vcf.gz','')
+allel.vcf_to_hdf5(vcf, scfid+'.h5', fields='*', overwrite=True)
+#print(vcf)
+
+```
+    
+    
+    
+## Empirical to FVs
+
+
+```{bash}
+
+python2 ~/partialSHIC/calcStatsAndDafForEachSnpSingleMsFile.py \
+../expansionNe/spNeut.msOut.gz 55000 > dser_partial_stats.txt
+
+
+
+
+faidx -x top6.anc.fa
+# rename anc sequence name 
+for ff in $(ls ScA8VGg_*.fa);do
+echo ${ff}
+mv ${ff} ${ff/.fa/.anc.fa}
+done
+
+
+
+
+empirical2FV() {
+chrArm=${1%%,*}
+chrLen=${1##*,}
+    echo ${chrArm} ${chrLen}
+    stepSize=5000000 
+    subWinSize=5000
+    numSubWins=11
+    segmentStart=1
+    segmentEnd=$(( $segmentStart - 1 + $stepSize + $subWinSize * ($numSubWins - 1) ))
+    while [ $segmentStart -lt ${chrLen} ];do
+    python2  ~/partialSHIC/empirical_convert_to_FVs.py \
+    ${chrArm}.filtered.bi.h5 \
+    ${chrArm} ${chrLen} ${segmentStart} ${segmentEnd} ${subWinSize} ${numSubWins} \
+    0.25 0.003 \
+    dser_partial_stats.txt \
+    ./top6.mask.fa \
+    ./${chrArm}.anc.fa \
+    samples_pops.txt \
+    "dser" \
+    ${chrArm}.${segmentStart}.stats \
+    ${chrArm}.${segmentStart}.fvec
+    segmentStart=$(( ${segmentStart} + ${stepSize} ))
+    segmentEnd=$(( ${segmentEnd} + ${stepSize} ))
+    done
+}
+
+export -f empirical2FV
+
+echo 'ScA8VGg_718,8653123 
+ScA8VGg_542,21028053 
+ScA8VGg_785,28136203 
+ScA8VGg_628,31265526 
+ScA8VGg_76,38731659 
+ScA8VGg_594,30326886' | parallel -j 6 empirical2FV
+
+```
+
+
+Merge FVs
+
+```{bash}
+for ff in ScA8VGg_76 ScA8VGg_785 ScA8VGg_628 ScA8VGg_594 ScA8VGg_542 ScA8VGg_718;do
+echo ${ff}
+outfile=${ff}.all.fvec
+[ -f "${outfile}" ] && rm ${outfile}
+head -1 ${ff}.1.fvec > ${outfile}
+ls -ltrh ${ff}.[0-9]*.fvec | awk '{print $9}' | xargs -I {} tail -n +2 {} >> ${outfile}
+done
+```
+
+
+
+## FVs to prediction
+
+### ExpansionNe classifier
+
+#### Run classifier
+
+```{bash}
+export ss='expansionNe'
+
+mkdir ${ss}_classifier
+
+pred() {
+    echo ${1}
+    python3 ~/partialSHIC/empirical_deep_learning_classify.py \
+    ../${ss}/${ss}.npy \
+    ${1} \
+    11 92 \
+    ./${ss}_classifier/${1/all.fvec/bed}
+}
+
+export -f pred
+
+ls  ScA8VGg_[0-9]*.all.fvec | parallel -j 3 pred
+
+```
+        
+        
+#### Summary prediction
+
+
+```{r}
+library(data.table)
+library(RColorBrewer)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(cowplot)
+
+beds <- list.files(pattern = 'ScA8VGg_.*.bed$')
+
+aa <- data.table()
+
+for(ff in beds){
+    tmp <- fread(ff, header = FALSE, sep = "\t")
+    aa <- rbind(aa, tmp)
+}
+
+
+a1 <- aa %>% extract('V4','State','(.*)_ScA8VGg.*') %>% 
+    mutate(V1=gsub('chr','', V1))
+
+
+a1_df <- data.table(table(a1$State))
+# hard_num <- aa_df[V1=="hard",N]
+# soft_num <- aa_df[V1=="soft",N]
+# hard_pct <- hard_num/(hard_num + soft_num)
+a1_df$pct <- a1_df$N/sum(a1_df$N)
+
+
+
+my.soft.col <- brewer.pal(9,"Reds")
+my.partialSoft.col <- brewer.pal(9,"Purples")
+my.hard.col <- brewer.pal(9,"Blues")
+my.partialHard.col <- brewer.pal(9, 'Greens')
+
+
+aplot <- as.data.table(a1_df)
+aplot$V1 <- factor(aplot$V1, levels=c("Hard","Hard-linked","HardPartial","HardPartial-linked",
+                                      "Soft", "Soft-linked", "SoftPartial", "SoftPartial-linked", "Neutral"))
+aplot <- aplot %>% arrange(desc(V1)) %>% mutate(prop = round(pct*100,2)) %>%
+    mutate(lab_ypos = cumsum(prop) - 0.5*prop) %>%
+    mutate(lbl=sprintf("%s: %.1f%%",V1,pct*100)) %>%
+    mutate(lbl2=sprintf("%.1f%%",pct*100))
+
+aplot[V1 %in% c('HardPartial','HardPartial-linked'),lbl2:=lbl]
+
+
+PA <- ggplot(aplot,aes(x="",y=prop, fill=V1)) +
+    geom_bar(width=1, stat="identity", color="white") +
+    coord_polar("y", start=0) +
+    geom_text(aes(x=c(1.2,1.2,1.2,1.2,1.2,1.8,1.7,1.2,1.4), 
+                  y=lab_ypos + c(0,0,0,0,0,-5,2,0,0), label=lbl2), 
+              color="black", size=3) +
+    scale_fill_manual(values=c(my.hard.col[6],my.hard.col[4],my.partialHard.col[6],my.partialHard.col[4],
+                               my.soft.col[6],my.soft.col[4],my.partialSoft.col[6],my.partialSoft.col[4],
+                               "grey60")) +
+    theme_void() + theme(legend.position = "none")
+
+
+
+
+
+a1[,chr:="xxxx"][V1=="ScA8VGg_76",chr:="3R"][V1=="ScA8VGg_718",
+                                             chr:="2L"][V1=="ScA8VGg_542",chr:="2L"][V1=="ScA8VGg_594",
+                                                                                     chr:="X"][V1=="ScA8VGg_628",chr:="3L"][V1=="ScA8VGg_785",chr:="2R"]
+a1[chr!="xxxx"] -> a2
+data.frame(table(a2$chr, a2$State)) -> a3
+a3 <- as.data.table(a3)
+a3 <- a3[,.(Freq2=Freq/sum(.SD[,Freq]), Var2=Var2),by=Var1]
+a3$Var2 <- factor(a3$Var2,rev(c("Hard","Hard-linked","HardPartial","HardPartial-linked",
+                                "Soft", "Soft-linked", "SoftPartial", "SoftPartial-linked", "Neutral")))
+
+PB <- ggplot(a3, aes(x = Var1, y = Freq2, fill = Var2)) + 
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values=c("Neutral"="grey60", 
+                               "SoftPartial-linked"=my.partialSoft.col[4], 
+                               "SoftPartial"=my.partialSoft.col[6],
+                               "Soft-linked"=my.soft.col[4],
+                               "Soft"=my.soft.col[6],
+                               "HardPartial-linked"=my.partialHard.col[4], 
+                               "HardPartial"=my.partialHard.col[6],
+                               "Hard-linked"=my.hard.col[4],
+                               "Hard"=my.hard.col[6])) +
+    xlab("") + ylab("partialS/HIC sub-windows proportion") + theme_classic() + 
+    labs(fill = "Genomic class") + 
+    theme(axis.text = element_text(size=12),axis.title = element_text(size=13), 
+          legend.text = element_text(size=11))
+
+
+PP <- plot_grid(PA,PB, ncol=2, labels = c("(a)","(b)"), label_x = c(0.2,0.75), 
+                label_y=c(0.95,0.95),rel_widths = c(0.4,0.6))
+ggsave("diploSHIC_proprotion_figure1.pdf",PP, width = 8, height = 4, 
+       dpi = 300, units = "in")
+
+
+# chisquare test
+library(rcompanion)
+bc <- table(a2$chr, a2$State)
+
+
+b2 <- cbind(rowSums(bc[,c(1,3)]), rowSums(bc[,c(2,4:9)]))
+# 
+# b1 <- cbind(bc,other = rowSums(bc[,2:9]))
+# b2 <- b1[,c(1,10)]
+chisq.test(b2)
+b2 <- matrix(c(29, 43, 59, 46, 56,3600,3876,4249,5688,4857), ncol=2)
+colnames(b2) <- c('hard','others')
+rownames(b2) <- c('2L','2R','3L','3R','X')
+pairwiseNominalIndependence(b2, fisher = F, gtest = F, chisq = T, method = "fdr")
+apply(b2,1,prop.table)
+
+# c1 <- cbind(bc,other = rowSums(bc[,c(1:5,7:9)]))
+# c2 <- c1[,c(6,10)
+c2 <- cbind(rowSums(bc[,c(6,8)]), rowSums(bc[,c(1:5,7,9)]))
+chisq.test(c2)
+
+c2 <- matrix(c(381,452,503,579,615,3248,3467,3805,5155,4298), ncol=2)
+colnames(c2) <- c('soft','others')
+rownames(c2) <- c('2L','2R','3L','3R','X')
+pairwiseNominalIndependence(c2, fisher = F, gtest = F, chisq = T, method = "fdr")
+apply(c2,1,prop.table)
+
+
+ph <- cbind(bc[,3], rowSums(bc[,c(1:2,4:9)]))
+apply(ph,1,prop.table)
+```
+        
+        
+        
+```
+                  V1     N         pct
+1:               Hard   202 0.008976581
+2:        Hard-linked  1319 0.058614407
+3:        HardPartial    31 0.001377594
+4: HardPartial-linked    67 0.002977381
+5:            Neutral  3192 0.141847754
+6:               Soft  2181 0.096920411
+7:        Soft-linked 14685 0.652579656
+8:        SoftPartial   349 0.015509043
+9: SoftPartial-linked   477 0.021197174
+```
+        
+        
+Convert diplo/SHIC wins to peaks
+
+```{r}
+library(data.table)
+library(dplyr)
+library(stringr)
+library(parallel)
+
+preFiles <- list.files(pattern = "^ScA8VGg_[0-9]+.bed$")
+
+class2peaks <- function(dat){
+    r <- rle(dat$State)
+    rr <- data.frame("len" = r$lengths, "val" = r$values)
+    rr$endWin <- cumsum(rr$len)
+    rr$startWin <- lag(rr$endWin,1,0) + 1
+    rr$start_pos <- dat[rr$startWin, V2]
+    rr$end_pos <- dat[rr$endWin, V3]
+    return(rr)
+}
+
+main <- function(x) {
+    aa <- fread(x, header = FALSE, sep = "\t") %>% 
+        tidyr::extract('V4','State','(.*)_ScA8VGg.*') %>% 
+        mutate(V1=gsub('chr','', V1))
+    aa <- aa[,1:4]
+    aa$t1 <- lag(aa$V2,1)
+    aa$t2 <- aa$V2 - aa$t1
+    # count gaps between wins
+    aa$wingap <- aa$t2/5000
+    aa$wingap[1] <- 1
+    aa$win_seq <- 0
+    win_s = 1
+    # gap larger than 2*5000kbp were considered separately
+    for(i in 1:nrow(aa)){
+        if(aa[i,wingap]<=2){
+            aa$win_seq[i] <- win_s
+        }
+        else{
+            win_s <- win_s + 1
+            aa$win_seq[i] <- win_s
+        }
+    }
+    
+    # for each segmentation, run class2peaks
+    merge_return <- data.frame()
+    for(j in unique(aa$win_seq)){
+        sub_aa <- aa[win_seq==j,]
+        tmp <- class2peaks(sub_aa)
+        tmp$scf <- str_split(x,"\\.")[[1]][1]
+        tmp <- tmp[,c("scf","len","val","start_pos","end_pos")]
+        tmp$win_seq <- j
+        merge_return <- rbind(merge_return,tmp)
+    }
+    fwrite(merge_return, paste0(x,".peak"), col.names = T, row.names = F, sep = "\t", quote = F)
+}
+
+mclapply(preFiles, main, mc.cores = 6)
+```
+        
+        
+        
+Merge 6 `ScA8VGg_*.bed.peak` files into one file
+
+```{bash}
+ls | grep "ScA8VGg.*bed.peak" | xargs -I {} awk 'NR>1{print $0}' {} >> all.bed.peak
+cut -f3 all.bed.peak | sort | uniq -c
+```
+        
+```
+147 Hard
+688 Hard-linked
+26 HardPartial
+53 HardPartial-linked
+894 Neutral
+1530 Soft
+2583 Soft-linked
+257 SoftPartial
+348 SoftPartial-linked
+```
+        
+        
+Find largest peak
+
+```{r}
+library(data.table)
+ffs <- list.files(pattern='ScA8VGg_.*.bed.peak')
+aa <- data.table()
+
+for(ff in ffs){
+    aa <- rbind(aa, fread(ff, header=TRUE, sep='\t'))
+}
+
+aa[,ll:=end_pos - start_pos]
+aa[order(ll)]
+
+```
+        
+        
+        
+        
+#### Peaks hit FBgn
+
+```{r}
+library(data.table)
+library(CheckOverlap)
+# setwd('~/myData/phd/p2/discoal_simu_partialSHIC/empiricalDat/expansionNe_classifier')
+aa <- fread("all.bed.peak", header = F, sep = "\t")
+names(aa) <- c("scf","win_n","class","start_pos","end_pos","win_seq")
+
+anno <- fread("~/myData/phd/p2/FBgn.bed", header = F, sep = "\t")
+names(anno) <- c("newscf","newstart","newend","Dmel_FBgn","majority")
+
+aa_s <- aa[class %in% c("Soft", "SoftPartial")]
+aa_h <- aa[class %in% c("Hard", "HardPartial")]
+
+overlap <- function(df){
+    df_hit <- data.frame()
+    for(s in unique(df$scf)){
+        df_s <- df[scf==s,]
+        sub_ann <- anno[newscf==s,]
+        check_ann <- CheckRange2Range(sub_ann$newstart,sub_ann$newend,df_s$start_pos,df_s$end_pos)
+        hit_sub <- sub_ann[,is_in := check_ann][is_in == 1,]
+        df_hit <- rbind(df_hit,hit_sub)
+    }
+    return(df_hit)
+}
+
+soft_hit <- overlap(aa_s)
+hard_hit <- overlap(aa_h)
+## summary FBgn
+soft_fbgn <- unique(soft_hit[!is.na(Dmel_FBgn),"Dmel_FBgn"])
+hard_fbgn <- unique(hard_hit[!is.na(Dmel_FBgn),"Dmel_FBgn"])
+
+fwrite(soft_fbgn,"soft_fbgn.txt", row.names = F, col.names = F, sep = "\t", quote = F)
+fwrite(hard_fbgn,"hard_fbgn.txt", row.names = F, col.names = F, sep = "\t", quote = F)
+```
+        
+Number of FBgn hit / 10924 total FBgn:
+    
+```
+198  hard_fbgn.txt
+2654  soft_fbgn.txt
+```
+        
+        
+        
+        
+Match vcf to diploSHIC class
+
+```{r}
+library(data.table)
+library(stringr)
+library(parallel)
+impact_file <- list.files(pattern = "ScA8VGg_[0-9]*.impact", path="~/myData/phd/p2",
+                          full.names = TRUE)
+
+runMatch <- function(ff){
+    scfid <- str_split(basename(ff),"\\.")[[1]][1]
+    im <- fread(ff,  header = F, sep = "\t")
+    pred <- fread(paste0(scfid,".bed.peak"), header = T, sep = "\t")
+    im$V4 <- im$V2
+    im$scf <- scfid
+    im <- im[,c("scf","V2","V4","V3")]
+    outa <- str_glue("{scfid}.tmp.a")
+    write.table(im,outa,row.names = F, col.names = F, sep = "\t", quote = F)
+    
+    pred <- pred[,c("scf","start_pos","end_pos","val")]
+    outb <- str_glue("{scfid}.tmp.b")
+    write.table(pred,outb,row.names = F, col.names = F, sep = "\t", quote = F)
+    
+    merged_bed <- str_glue("{scfid}class_pred_match.txt")
+    cmd1 <- str_glue("bedtools intersect -a {outa} -b {outb} -wao > {merged_bed}")
+    system(cmd1)
+    ## filter out SNPs probably due to mask repetitive regions
+    filterout_name <- str_glue("{scfid}class_pred_match.filterout")
+    cmd2 <- paste0("awk '$8==\".\"{print $0}' ", merged_bed, " > ", filterout_name)
+    system(cmd2)
+    ## keep
+    filterin_name <- paste0(scfid,"class_pred_match.filterin")
+    cmd3 <- paste0("awk 'BEGIN{OFS=\"\t\"}$8!=\".\"{print $1,$2,$4,$6,$7,$8}' ",merged_bed," > ",filterin_name)
+    system(cmd3)
+    file.remove(merged_bed)
+    file.remove(outa)
+    file.remove(outb)
+}
+
+ret <- mclapply(impact_file, runMatch, mc.cores = 6)
+```
+        
+        
+        
+#### H12 - iHS -SHIC
+
+Point plot
+
+```{r}
+setwd('~/myData/phd/p2/discoal_simu_partialSHIC/empiricalDat/expansionNe_classifier')
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+
+my.soft.col <- brewer.pal(9,"Reds")
+my.partialSoft.col <- brewer.pal(9,"Purples")
+my.hard.col <- brewer.pal(9,"Blues")
+my.partialHard.col <- brewer.pal(9, 'Greens')
+
+
+Rcpp::cppFunction('
+NumericVector checkH12(IntegerVector qpos, IntegerVector h12Left, IntegerVector h12Right, NumericVector h12v){
+int qsize = qpos.size();
+int h12size = h12Left.size();
+NumericVector ret_v(qsize, 0.0);
+for(int i=0; i < qsize; i++){
+    int qpos_i = qpos[i];
+    for(int j=0; j < h12size; j++){
+        if(qpos_i >= h12Left[j] && qpos_i <= h12Right[j]){
+            ret_v[i] = h12v[j];
+            break;
+        }
+    }
+}
+return ret_v;
+}
+          ')
+
+
+shics <- list.files(pattern = 'ScA8VGg_.*class_pred_match.filterin')
+
+shic <- data.table()
+for(ff in shics){
+    tmp <- fread(ff, header=F, sep='\t', select=c(1,2,6)) %>%
+        setNames(c('V1','V2','statev'))
+    shic <- rbind(shic, tmp)
+}
+
+
+
+
+h12 <- fread('~/myData/phd/p2/h12/allH12.out', header=FALSE, sep=' ', select=c(1,2,3,4,8)) %>%
+    setNames(c('V1','pos_center','pos_left','pos_right','h12v'))
+
+
+ihs <- fread('~/myData/phd/p2/ihs/all_pihs.txt', header=TRUE, sep='\t', select=c(1,2,4)) %>%
+    tidyr::extract('CHR','V1','(.*);HRSCAF=.*') %>% 
+    setNames(c('V1','V2','pihsv'))
+
+
+aa <- inner_join(shic, ihs, by = c('V1','V2')) 
+
+for(scf in unique(aa$V1)){
+    print(scf)
+    rr <- checkH12(aa[V1==scf, V2], h12[V1==scf, pos_left], h12[V1==scf, pos_right], h12[V1==scf, h12v])
+    aa[V1==scf, h12v:=rr]
+}
+
+
+aa[statev %like% 'linked', statev2:='others']
+aa[statev == 'Neutral', statev2:='others']
+aa[statev %in% c('Hard', 'HardPartial'), statev2:='hard']
+aa[statev %in% c('Soft', 'SoftPartial'), statev2:='soft']
+
+aa$statev2 <- factor(aa$statev2, levels = c('others', 'soft', 'hard'))
+aa <- aa[order(statev2)]
+
+
+ggplot(data=aa) + 
+    geom_point(aes(x=h12v, y=pihsv, color=statev2, size=statev2)) +
+    scale_color_manual(name= '', values=c("others"="grey70", 
+                                          "soft"=my.soft.col[6],
+                                          "hard"=my.hard.col[7])) +
+    scale_size_manual(name = '', values=c("others"=1, 
+                                          "soft"=1.5,
+                                          "hard"=1.5)) +
+    scale_x_continuous(name='H12') + 
+    scale_y_continuous(name='piHS') +
+    theme_bw()
+
+ggsave('h12_ihs_shic_geomPoin.png', unit='in', width=8, height=7, dpi=200)
+
+
+# Acp62F  ScA8VGg_628     15930481        15932083        FBgn0020509     3L
+
+
+
+```
+        
+        
+Chromosomal scale plot
+
+
+```{r}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+
+
+my.soft.col <- brewer.pal(9,"Reds")
+my.partialSoft.col <- brewer.pal(9,"Purples")
+my.hard.col <- brewer.pal(9,"Blues")
+my.partialHard.col <- brewer.pal(9, 'Greens')
+
+
+## By chromosome
+for (scf in list(c("76","3R"),c("628","3L"), c("718","542","2L"),c("594","X"),c("785","2R"))){
+    print(scf)
+    print(length(scf))
+    if(length(scf) == 2){
+        scfid = scf[1]
+        shicfile <- paste0("./ScA8VGg_",scfid,".bed")
+        shic <- fread(shicfile, header = F, sep = "\t", skip=1L, select=c(1:4)) %>%
+            tidyr::extract('V4','State','(.*)_ScA8VGg.*') %>%
+            mutate(V1=gsub('chr','', V1)) 
+        
+        
+        h12file <- paste0("~/myData/phd/p2/h12/ScA8VGg_",scfid,".filtered.H12out.txt")
+        h12 <- fread(h12file, header = F, sep = "\t") %>% 
+            select(c("V2","V3","V9","V10")) %>% 
+            setNames(c("left","right","H12","H21")) %>%
+            mutate(icenter=ceiling((left + right)/2))
+        
+        ihsfile <- paste0("~/myData/phd/p2/ihs/ScA8VGg_",scfid,".pval.txt")
+        ihs <- fread(ihsfile, header = T, sep = "\t") %>%
+            filter(!is.na(IHS)) %>% setNames(c("chr","pos","iHS","piHS")) %>%
+            tidyr::extract('chr','chr','(ScA8VGg.*);HRSCAF=.*')
+        
+        shic$State <- factor(shic$State, levels=c("Hard","Hard-linked","HardPartial","HardPartial-linked",
+                                                  "Soft", "Soft-linked", "SoftPartial", "SoftPartial-linked", "Neutral"))
+        
+        h12_1 <- data.frame("my_group" = "H12", "pos" = h12$icenter, "value" = h12$H12)
+        ihs_1 <- data.frame("my_group" = "piHS", "pos" = ihs$pos, "value" = ihs$piHS)
+        h12_ihs <- rbind(h12_1,ihs_1)
+        h12_ihs <- as.data.table(h12_ihs)
+        h12_ihs[my_group == "H12",y_min := 0]
+        h12_ihs[my_group == "H12",y_max := 0.1]
+        h12_ihs[my_group == "piHS",y_min := 0]
+        h12_ihs[my_group == "piHS",y_max := 15]
+        
+        png(paste0(scf[2],".png"), height = 1500, width = 1500, res = 150)
+        print(ggplot() + geom_point(data = h12_ihs, aes(x=pos, y=value)) + 
+                  facet_grid(my_group~.,scales = "free_y") + 
+                  geom_blank(data = h12_ihs, aes(y = y_min)) + 
+                  geom_blank(data = h12_ihs, aes(y = y_max)) +
+                  geom_rect(data = shic, mapping = aes(xmin = V2, xmax = V3, ymin = -Inf, ymax = Inf, fill = State, alpha = 0.3)) +
+                  scale_alpha(guide = 'none') + 
+                  theme_bw() + theme(panel.grid.minor = element_line(linetype = "dashed")) +
+                  scale_fill_manual(values=c("Neutral"="grey60", 
+                                             "SoftPartial-linked"=my.partialSoft.col[4], 
+                                             "SoftPartial"=my.partialSoft.col[6],
+                                             "Soft-linked"=my.soft.col[4],
+                                             "Soft"=my.soft.col[6],
+                                             "HardPartial-linked"=my.partialHard.col[4], 
+                                             "HardPartial"=my.partialHard.col[6],
+                                             "Hard-linked"=my.hard.col[4],
+                                             "Hard"=my.hard.col[6])) +
+                  labs(fill = "Sweep Class") + xlab(scf[2]) + ylab(NULL)
+        )
+        dev.off()
+    }
+    if(length(scf) == 3){
+        scfid1 = scf[1]
+        scfid2 = scf[2]
+        shic0 <- data.table()
+        h120 <- data.table()
+        ihs0 <- data.table()
+        for(scfidi in c(scfid1,scfid2)){
+            shicfile <- paste0("./ScA8VGg_",scfidi,".bed")
+            shic <- fread(shicfile, header = F, sep = "\t", skip=1L, select=c(1:4)) %>%
+                tidyr::extract('V4','State','(.*)_ScA8VGg.*') %>%
+                mutate(V1=gsub('chr','', V1)) 
+            shic0 <- rbind(shic0,shic)
+            
+            h12file <- paste0("~/myData/phd/p2/h12/ScA8VGg_",scfidi,".filtered.H12out.txt")
+            h12 <- fread(h12file, header = F, sep = "\t") %>% 
+                select(c("V2","V3","V9","V10")) %>% 
+                setNames(c("left","right","H12","H21")) %>%
+                mutate(icenter=ceiling((left + right)/2)) %>%
+                mutate(scfname=paste0("scf",scfidi))
+            h120 <- rbind(h120,h12)
+            
+            ihsfile <- paste0("~/myData/phd/p2/ihs/ScA8VGg_",scfid,".pval.txt")
+            ihs <- fread(ihsfile, header = T, sep = "\t") %>%
+                filter(!is.na(IHS)) %>% setNames(c("chr","pos","iHS","piHS")) %>%
+                tidyr::extract('chr','chr','(ScA8VGg.*);HRSCAF=.*') %>%
+                mutate(scfname = paste0("scf",scfidi))
+            ihs0 <- rbind(ihs0,ihs)
+        }
+        shic0[V1 == "ScA8VGg_718", V2.new := V2][V1 == "ScA8VGg_542",
+                                                 V2.new := V2 + 8547500L + 5000L][V1 == "ScA8VGg_718", V3.new := V3][V1 == "ScA8VGg_542",
+                                                                                                                     V3.new := V3 + 8547500L + 5000L]
+        
+        h120[scfname == "scf718", icenter.new := icenter][scfname == "scf542", icenter.new := icenter + 8621290L + 100L]
+        
+        ihs0[scfname == "scf718", pos.new := pos][scfname == "scf542", pos.new := pos + 8648403L + 100L]
+        
+        shic0$State <- factor(shic0$State, levels=c("Hard","Hard-linked","HardPartial","HardPartial-linked",
+                                                    "Soft", "Soft-linked", "SoftPartial", "SoftPartial-linked", "Neutral"))
+        
+        h12_1 <- data.frame("my_group" = "H12", "pos" = h120$icenter.new, "value" = h120$H12)
+        ihs_1 <- data.frame("my_group" = "piHS", "pos" = ihs0$pos.new, "value" = ihs0$piHS)
+        h12_ihs <- rbind(h12_1,ihs_1)
+        h12_ihs <- as.data.table(h12_ihs)
+        h12_ihs[my_group == "H12",y_min := 0]
+        h12_ihs[my_group == "H12",y_max := 0.1]
+        h12_ihs[my_group == "piHS",y_min := 0]
+        h12_ihs[my_group == "piHS",y_max := 15]
+        png(paste0(scf[3],".png"), height = 1500, width = 1500, res = 150)
+        print(ggplot() + geom_point(data = h12_ihs, aes(x=pos, y=value)) + 
+                  facet_grid(my_group~.,scales = "free_y") + 
+                  geom_blank(data = h12_ihs, aes(y = y_min)) + 
+                  geom_blank(data = h12_ihs, aes(y = y_max)) +
+                  geom_rect(data = shic0, mapping = aes(xmin = V2.new, xmax = V3.new, ymin = -Inf, ymax = Inf, fill = State, alpha = 0.3)) + 
+                  scale_alpha(guide = 'none') +
+                  theme_bw() + theme(panel.grid.minor = element_line(linetype = "dashed")) +
+                  scale_fill_manual(values=c("Neutral"="grey60", 
+                                             "SoftPartial-linked"=my.partialSoft.col[4], 
+                                             "SoftPartial"=my.partialSoft.col[6],
+                                             "Soft-linked"=my.soft.col[4],
+                                             "Soft"=my.soft.col[6],
+                                             "HardPartial-linked"=my.partialHard.col[4], 
+                                             "HardPartial"=my.partialHard.col[6],
+                                             "Hard-linked"=my.hard.col[4],
+                                             "Hard"=my.hard.col[6])) +
+                  labs(fill = "Sweep Class") + xlab(scf[3]) + ylab(NULL)
+        )
+        dev.off()
+    }
+}
+
+```
+        
+merge png to pdf
+
+```{bash}
+conda activate gatkspark
+img2pdf 2L.png 2R.png 3L.png 3R.png X.png -o supplementaryFigureS2.pdf
+```
+        
+        
+        
+        
+#### Permutation
+
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/empiricalDat/expansionNe_classifier
+mkdir permu
+cd permu
+```
+
+```{r}
+library(data.table)
+library(dplyr)
+library(stringr)
+#library(CheckOverlap)
+library(parallel)
+####
+class2peaks <- function(dat){
+    r <- rle(dat$spl_class)
+    rr <- data.frame("len" = r$lengths, "val" = r$values)
+    rr$endWin <- cumsum(rr$len)
+    rr$startWin <- lag(rr$endWin,1,0) + 1
+    rr$start_pos <- dat[rr$startWin,V2]
+    rr$end_pos <- dat[rr$endWin,V3]
+    return(rr)
+}
+
+main <- function(aa,times) {
+    aa$t1 <- lag(aa$V2,1)
+    aa$t2 <- aa$V2 - aa$t1
+    # count gaps between wins
+    aa$wingap <- aa$t2/5000
+    aa$wingap[1] <- 1
+    aa$win_seq <- 0
+    win_s = 1
+    # gap larger than 2*5000kbp were considered separately
+    for(i in 1:nrow(aa)){
+        if(aa[i,wingap]<=2){
+            aa$win_seq[i] <- win_s
+        }
+        else{
+            win_s <- win_s + 1
+            aa$win_seq[i] <- win_s
+        }
+    }
+    
+    # for each segmentation, run class2peaks
+    merge_return <- data.frame()
+    for(j in unique(aa$win_seq)){
+        sub_aa <- aa[win_seq==j,]
+        tmp <- class2peaks(sub_aa)
+        tmp$scf <- aa[1,V1]
+        tmp <- tmp[,c("scf","len","val","start_pos","end_pos")]
+        tmp$win_seq <- j
+        merge_return <- rbind(merge_return,tmp)
+    }
+    #fwrite(merge_return, paste0(x,".peak"), col.names = T, row.names = F, sep = "\t", quote = F)
+    merge_return$times <- times
+    return(merge_return)
+}
+
+# simulate each time
+run_main <- function(i){
+    spl_seq <- sample_n(predPeaks,nrow(predPeaks), replace = F)
+    bb$spl_class <- rep(spl_seq$val, spl_seq$len)
+    main_tmp <- main(bb,i)
+    main_tmp$id <- 1:nrow(main_tmp)
+    main_tmp <- main_tmp[,c("scf","start_pos","end_pos","val","id","times","len")]
+    tmp_file <- paste0(main_tmp$scf[1],"_peaks_",i,"_tmp.bed")
+    write.table(main_tmp, tmp_file,row.names = F, col.names = F, quote = F, sep = "\t")
+    #bedtools
+    merged_bed <- paste0(main_tmp$scf[1],"_peaks_",i,"_tmp.txt")
+    cmd1 <- paste0("bedtools intersect -a ",snp_bed," -b ",tmp_file," -wo > ", merged_bed)
+    system(cmd1)
+    # remove tmp file
+    file.remove(tmp_file)
+    # read merged file
+    merge_tmp <- fread(merged_bed, header = F, sep = "\t")
+    file.remove(merged_bed)
+    meger_tmp1 <- merge_tmp[,(count=.N), by = c("V4","V9")][,times:=i]
+    return(meger_tmp1)
+}
+
+for (scfid in c(542,594,628,718,76,785)){
+    cat("Working on ScA8VGg_",scfid," ...\n", sep = "")
+    peakFile <- paste0("../ScA8VGg_",scfid,".bed.peak")
+    predPeaks <- fread(peakFile)
+    bbFile <- paste0("../ScA8VGg_",scfid,".bed")
+    bb <- fread(bbFile, select=c(1,2,3), header=FALSE, sep='\t') %>% 
+        mutate(V1=gsub('chr','', V1))
+    impactFile <- paste0("~/myData/phd/p2/ScA8VGg_",scfid,".impact")
+    im <- fread(impactFile)
+    ##filter SNPs based on file:
+    filter_file <- paste0("../ScA8VGg_",scfid,"class_pred_match.filterin")
+    keep_pos <- fread(filter_file, select = c("V2"))
+    im[V2 %in% keep_pos$V2] -> im
+    im[,scf:=paste0("ScA8VGg_",scfid)][!is.na(scf),id:=1:.N][,V1:=NULL][,V5:=V2]
+    setcolorder(im,c("scf","V2","V5","V3","id"))
+    # im$V2 <- format(im$V2, scientific = FALSE)
+    # im$V5 <- format(im$V5, scientific = FALSE)
+    snp_bed <- paste0("ScA8VGg_",scfid,"_snp_tmp.bed")
+    fwrite(im,snp_bed, col.names = F, sep = "\t")
+    tmp_df <- mclapply(1:10000, run_main, mc.cores = 32)
+    final_df <- do.call(rbind, tmp_df)
+    final_df$scf <- paste0("ScA8VGg_",scfid)
+    fwrite(final_df, paste0("ScA8VGg_",scfid,".sim"), quote = F, col.names = T, row.names = F, sep = "\t")
+    file.remove(snp_bed)
+    cat("Simulation ScA8VGg_",scfid," DONE! \n", sep = "")
+}
+```
+        
+        
+        
+Compare observation with permutation
+
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/empiricalDat/expansionNe_classifier/permu
+ls ScA8VGg_*.sim | xargs -I {} awk 'NR>1' {} >> all_scf.sim
+
+cd ..
+cat Sc*class_pred_match.filterin > all_class_pred_match.filterin
+```
+        
+- Nine states
+
+
+```{r}
+setwd('~/myData/phd/p2/discoal_simu_partialSHIC/empiricalDat/expansionNe_classifier')
+library(data.table)
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+
+obs <- fread("all_class_pred_match.filterin", header = F, sep = "\t")
+obs %>% count(V3,V6) -> all_scf
+names(all_scf) <- c("impact","genome_class","countSNP")
+all_scf$impact <- factor(all_scf$impact, c("HIGH","MODERATE","LOW","MODIFIER"))
+all_scf$genome_class <- factor(all_scf$genome_class, 
+                               c("Hard", "Hard-linked", "HardPartial", "HardPartial-linked",
+                                 "Soft", "Soft-linked", "SoftPartial", "SoftPartial-linked",
+                                 "Neutral"))
+
+
+# Test
+
+# mytest <- all_scf
+# 
+# mytest <- tidyr::spread(mytest, genome_class, countSNP)
+# as.matrix(mytest[,2:6]) %>% chisq.test
+
+
+## permutation
+
+sim <- fread("./permu/all_scf.sim", header = F, sep = "\t")
+# average all 10000 simulation times and sum all scaffold
+sim %>% group_by(V1,V2,V4) %>% summarise(scf_sum = sum(V3)) %>% group_by(V1,V2) %>%
+    summarise(countSNP = sum(scf_sum)/10000) -> all_sim
+#summarise(countSNP = round(mean(scf_sum))) -> all_sim
+names(all_sim) <- c("impact","genome_class","countSNP")
+all_sim$impact <- factor(all_sim$impact, c("HIGH","MODERATE","LOW","MODIFIER"))
+all_sim$genome_class <- factor(all_sim$genome_class, c("Hard", "Hard-linked", "HardPartial", "HardPartial-linked",
+                                                       "Soft", "Soft-linked", "SoftPartial", "SoftPartial-linked",
+                                                       "Neutral"))
+
+
+###############################################################
+### new plot with CI range
+sim %>% group_by(V1,V2,V4) %>% summarise(a=sum(V3)) %>% group_by(V1,V2) %>% 
+    summarise(up=quantile(a,0.95), low=quantile(a,0.05), avg=sum(a)/10000) %>% 
+    setNames(c("impact","genome_class","upci","lowci","meanci")) -> sim_ci
+
+sim_ci$impact <- factor(sim_ci$impact, c("HIGH","MODERATE","LOW","MODIFIER"))
+sim_ci$genome_class <- factor(sim_ci$genome_class, c("Hard", "Hard-linked", "HardPartial", "HardPartial-linked",
+                                                     "Soft", "Soft-linked", "SoftPartial", "SoftPartial-linked",
+                                                     "Neutral"))
+
+ci_df <- left_join(all_scf, sim_ci, by = c("impact","genome_class"))  %>%
+    mutate("up_fold"=countSNP/upci, "low_fold"=countSNP/lowci, "mean_fold"=countSNP/meanci)
+# %>% select(-"data_src")
+ci_df$impact <- factor(ci_df$impact, c("MODIFIER","LOW","MODERATE","HIGH"))
+ci_df$genome_class <- factor(ci_df$genome_class, c("Hard", "Hard-linked", "HardPartial", "HardPartial-linked",
+                                                   "Soft", "Soft-linked", "SoftPartial", "SoftPartial-linked",
+                                                   "Neutral"))
+ci_df[order(ci_df$impact,ci_df$genome_class),] -> ci_df
+
+
+all_df <- expand.grid(impact = c("MODIFIER","LOW","MODERATE","HIGH"),
+                      genome_class = c("Hard", "Hard-linked", "HardPartial", "HardPartial-linked",
+                                       "Soft", "Soft-linked", "SoftPartial", "SoftPartial-linked",
+                                       "Neutral"))
+
+ci_df <- left_join(all_df, ci_df, by = c('impact','genome_class')) %>%
+    mutate(up_fold=ifelse(is.na(up_fold),0, up_fold)) %>%
+    mutate(low_fold=ifelse(is.na(low_fold),0, low_fold))
+
+
+# plot
+pdf("sweepImpact_dotplot_9states.pdf", width=6, height = 8)
+dotchart(ci_df$mean_fold,labels = ci_df$impact,xlim=c(0,5), 
+         groups = ci_df$genome_class, xlab = "SNP enrichment fold",
+         cex= 0.7)
+abline(v=1, col="red")
+# add 95%CI line
+bb <- ci_df
+bb$impact <- factor(bb$impact, c("HIGH","MODERATE","LOW","MODIFIER"))
+bb[order(bb$genome_class,bb$impact, decreasing = T),] -> bb
+j = 1
+for(i in 1:nrow(bb)){
+    if(i%%4!=0){
+        if(bb$low_fold[i]!=0){segments(bb$low_fold[i],j,bb$up_fold[i],j)}
+        j=j+1
+    }else{
+        if(bb$low_fold[i]!=0){segments(bb$low_fold[i],j,bb$up_fold[i],j)}
+        j=j+3
+    }
+}
+dev.off()
+
+##########################################################################
+## plot horizontal barplot
+bb$impact <- factor(bb$impact, c("MODIFIER","LOW","MODERATE","HIGH")) 
+
+# 1. plot with gap
+trans <- function(x){
+    pmin(x,1e6) + 0.08*pmax(x-1e6,0)
+}
+yticks <- c(0,2.5e5,5e5,7.5e5,1e6,4e6,6e6)
+ggplot(bb, aes(x = genome_class, y = trans(countSNP), fill = impact)) +
+    geom_bar(position = "dodge", stat = "identity") + scale_fill_brewer(palette = "Oranges") +
+    theme_minimal() + theme(axis.text=element_text(size=11)) +
+    scale_y_continuous(expand = c(0,0), limits = c(0,NA), breaks = trans(yticks), labels = yticks/1000) +
+    ylab("Number of SNPs(*1000)") +
+    geom_rect(aes(xmin=0, xmax=Inf, ymin=1.02e6, ymax=1.05e6), fill="white") +
+    coord_flip(expand = F) +
+    #coord_cartesian(expand = FALSE) +
+    #geom_col(position = "dodge")  +
+    scale_x_discrete(limits=c("Hard", "Hard-linked", "HardPartial", "HardPartial-linked",
+                              "Soft", "Soft-linked", "SoftPartial", "SoftPartial-linked",
+                              "Neutral"), expand = c(0,0))
+ggsave("snpNumSweepClassWithGap_9states.pdf")
+
+```
+        
+        
+p_value denoted by star for scf-impact-diploSHIC
+
+
+```{r}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+sim <- fread("./permu/all_scf.sim", header = F, sep = "\t")
+
+rank_fun <- function(ch = "ScA8VGg_718", im = "HIGH", ge = "Soft", obs=477){
+    sim_or <- sim[V5==ch & V2 == ge & V1 == im,V3]
+    if(length(sim_or) >0){
+        p_val <- (length(sim_or[sim_or>=obs])+1)/(length(sim_or)+1)
+    }else{
+        p_val <- NA
+    }
+    return(list("p_val" = p_val,"size" = length(sim_or),"mean_sim" = mean(sim_or)))
+}
+
+obs <- fread("all_class_pred_match.filterin", header = F, sep = "\t")
+obs %>% group_by(V1,V3,V6) %>% count() -> obs1
+pp <- apply(obs1,1,function(x) rank_fun(x[1],x[2],x[3],as.numeric(x[4])))
+p_df <- cbind(as.data.frame(obs1),as.data.frame(do.call(rbind,pp)))
+p_df <- as.data.table(p_df)
+p_df$p_val <- unlist(p_df$p_val)
+p_df$size <- unlist(p_df$size)
+p_df$mean_sim <- unlist(p_df$mean_sim)
+p_df[,chr:="xxxx"][V1=="ScA8VGg_76",chr:="3R"][V1=="ScA8VGg_718",chr:="2L"][V1=="ScA8VGg_542",
+                                                                            chr:="2L"][V1=="ScA8VGg_594",chr:="X"][V1=="ScA8VGg_628",chr:="3L"][V1=="ScA8VGg_785",chr:="2R"]
+
+
+p_chr <- p_df[chr!="xxxx",]
+# p_value adjust
+p_chr[,q_value:=p.adjust(p_val, method = "fdr")]
+p_chr[,enrich_fold:=n/mean_sim]
+# star label
+p_chr[q_value < 0.001, star := "***"][q_value < 0.01 & q_value >= 0.001, 
+                                      star := "**"][q_value >= 0.01 & q_value < 0.05,star := "*"][,
+                                                                                                  scf_chr := paste0(chr,":scf",substr(V1,9,nchar(V1)))]
+p_chr$V1 <- factor(p_chr$V1, c("ScA8VGg_542","ScA8VGg_718","ScA8VGg_785","ScA8VGg_628","ScA8VGg_76","ScA8VGg_594"))
+
+
+setnames(p_chr, c("scf","impact_level","genomic_class","win_n","p_val", 
+                  "sample_size","mean_sim","chr","q_value","enrich_fold","star","scf_chr"))
+
+
+# soft_only = TRUE
+
+x_lim <- c("Hard", "Hard-linked", "HardPartial", "HardPartial-linked",
+           "Soft", "Soft-linked", "SoftPartial", "SoftPartial-linked",
+           "Neutral")
+x_lim_label <- c("Hard", "Hard-linked", "HardPartial", "HardPartial\n-linked",
+                 "Soft", "Soft-linked", "SoftPartial", "SoftPartial\n-linked",
+                 "Neutral")
+# if(soft_only){
+#   p_chr <- p_chr[genomic_class %in% c("soft","linkedSoft","neutral")]
+#   x_lim <- c("neutral","linkedSoft","soft")
+# }
+
+p_chr$impact_level <- factor(p_chr$impact_level, c("HIGH","MODERATE","LOW","MODIFIER"))
+p_chr$genomic_class <- factor(p_chr$genomic_class, x_lim)
+
+
+pp <- expand.grid(impact_level = c("HIGH","MODERATE","LOW","MODIFIER"), 
+                  genomic_class = x_lim, 
+                  chr = c('2L','2R','3L','3R','X')) %>% 
+    left_join(.,  p_chr[scf != "ScA8VGg_718"], by=c('impact_level','genomic_class','chr')) %>%
+    mutate(enrich_fold=ifelse(is.na(enrich_fold),0,enrich_fold))
+
+
+ggplot(pp, aes(x = genomic_class, y = enrich_fold, fill = impact_level)) +
+    geom_bar(position = "dodge", stat = "identity") + 
+    theme_minimal() + theme(axis.text=element_text(size=11))  +
+    scale_fill_brewer(palette = "Oranges", direction = -1, drop=FALSE) +
+    scale_x_discrete(limits=x_lim, drop=FALSE, labels=x_lim_label) + 
+    geom_text(aes(label = star), position = position_dodge(0.9)) + 
+    facet_grid(rows = vars(chr)) +
+    ylab("SNP enrichment fold") + xlab("genomic class")
+ggsave("impact_genomicClass_chr_9state.pdf",width = 10, height=7, dpi=250, unit='in')
+```
+        
+        
+        
+        
+        
+- Five states
+
+
+```{r}
+
+setwd('~/myData/phd/p2/discoal_simu_partialSHIC/empiricalDat/expansionNe_classifier')
+library(data.table)
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+
+obs <- fread("all_class_pred_match.filterin", header = F, sep = "\t")
+
+obs[V6=='HardPartial', V6:='hard']
+obs[V6=='Hard', V6:='hard']
+obs[V6=='HardPartial-linked', V6:='hard-linked']
+obs[V6=='Hard-linked', V6:='hard-linked']
+obs[V6=='SoftPartial', V6:='soft']
+obs[V6=='Soft', V6:='soft']
+obs[V6=='SoftPartial-linked', V6:='soft-linked']
+obs[V6=='Soft-linked', V6:='soft-linked']
+obs[V6=='Neutral', V6:='neutral']
+
+obs %>% count(V3,V6) -> all_scf
+names(all_scf) <- c("impact","genome_class","countSNP")
+all_scf$impact <- factor(all_scf$impact, c("HIGH","MODERATE","LOW","MODIFIER"))
+all_scf$genome_class <- factor(all_scf$genome_class, 
+                               c("hard", "hard-linked", 
+                                 "soft", "soft-linked", 
+                                 "neutral"))
+
+
+# Test
+
+# mytest <- all_scf
+# 
+# mytest <- tidyr::spread(mytest, genome_class, countSNP)
+# as.matrix(mytest[,2:6]) %>% chisq.test
+
+
+## permutation
+
+sim <- fread("./permu/all_scf.sim", header = F, sep = "\t")
+sim[V2 %in% c('Hard','HardPartial'), V2:='hard']
+sim[V2 %in% c('Hard-linked','HardPartial-linked'), V2:='hard-linked']
+
+sim[V2 %in% c('Soft','SoftPartial'), V2:='soft']
+sim[V2 %in% c('Soft-linked', 'SoftPartial-linked'), V2:='soft-linked']
+sim[V2 == 'Neutral', V2:='neutral']
+# average all 10000 simulation times and sum all scaffold
+sim %>% group_by(V1,V2,V4) %>% summarise(scf_sum = sum(V3)) %>% group_by(V1,V2) %>%
+    summarise(countSNP = sum(scf_sum)/10000) -> all_sim
+#summarise(countSNP = round(mean(scf_sum))) -> all_sim
+names(all_sim) <- c("impact","genome_class","countSNP")
+all_sim$impact <- factor(all_sim$impact, c("HIGH","MODERATE","LOW","MODIFIER"))
+all_sim$genome_class <- factor(all_sim$genome_class, c("hard", "hard-linked", 
+                                                       "soft", "soft-linked", 
+                                                       "neutral"))
+
+
+###############################################################
+### new plot with CI range
+sim %>% group_by(V1,V2,V4) %>% summarise(a=sum(V3)) %>% group_by(V1,V2) %>% 
+    summarise(up=quantile(a,0.95), low=quantile(a,0.05), avg=sum(a)/10000) %>% 
+    setNames(c("impact","genome_class","upci","lowci","meanci")) -> sim_ci
+
+sim_ci$impact <- factor(sim_ci$impact, c("HIGH","MODERATE","LOW","MODIFIER"))
+sim_ci$genome_class <- factor(sim_ci$genome_class, c("hard", "hard-linked", 
+                                                     "soft", "soft-linked", 
+                                                     "neutral"))
+
+ci_df <- left_join(all_scf, sim_ci, by = c("impact","genome_class"))  %>%
+    mutate("up_fold"=countSNP/upci, "low_fold"=countSNP/lowci, "mean_fold"=countSNP/meanci)
+# %>% select(-"data_src")
+ci_df$impact <- factor(ci_df$impact, c("MODIFIER","LOW","MODERATE","HIGH"))
+ci_df$genome_class <- factor(ci_df$genome_class, c("hard", "hard-linked", 
+                                                   "soft", "soft-linked", 
+                                                   "neutral"))
+ci_df[order(ci_df$impact,ci_df$genome_class),] -> ci_df
+
+# plot
+pdf("sweepImpact_dotplot_5states.pdf", width=6, height = 6)
+dotchart(ci_df$mean_fold,labels = ci_df$impact,xlim=c(0,3), groups = ci_df$genome_class, xlab = "SNP enrichment fold")
+abline(v=1, col="red")
+# add 95%CI line
+bb <- ci_df
+bb$impact <- factor(bb$impact, c("HIGH","MODERATE","LOW","MODIFIER"))
+bb[order(bb$genome_class,bb$impact, decreasing = T),] -> bb
+j = 1
+for(i in 1:nrow(bb)){
+    if(i%%4!=0){
+        segments(bb$low_fold[i],j,bb$up_fold[i],j)
+        j=j+1
+    }else{
+        segments(bb$low_fold[i],j,bb$up_fold[i],j)
+        j=j+3
+    }
+}
+dev.off()
+
+##########################################################################
+## plot horizontal barplot
+bb$impact <- factor(bb$impact, c("MODIFIER","LOW","MODERATE","HIGH")) 
+
+# 1. plot with gap
+trans <- function(x){
+    pmin(x,1e6) + 0.08*pmax(x-1e6,0)
+}
+yticks <- c(0,2.5e5,5e5,7.5e5,1e6,4e6,6e6)
+ggplot(bb, aes(x = genome_class, y = trans(countSNP), fill = impact)) +
+    geom_bar(position = "dodge", stat = "identity") + scale_fill_brewer(palette = "Oranges") +
+    theme_minimal() + theme(axis.text=element_text(size=11)) +
+    scale_y_continuous(expand = c(0,0), limits = c(0,NA), breaks = trans(yticks), labels = yticks/1000) +
+    ylab("Number of SNPs(*1000)") +
+    geom_rect(aes(xmin=0, xmax=Inf, ymin=1.02e6, ymax=1.05e6), fill="white") +
+    coord_flip(expand = F) +
+    #coord_cartesian(expand = FALSE) +
+    #geom_col(position = "dodge")  +
+    scale_x_discrete(limits=c("hard", "hard-linked", 
+                              "soft", "soft-linked",
+                              "neutral"), expand = c(0,0))
+ggsave("snpNumSweepClassWithGap_5states.pdf")
+
+```
+        
+        
+p_value denoted by star for scf-impact-diploSHIC
+
+
+```{r}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+sim <- fread("./permu/all_scf.sim", header = F, sep = "\t")
+sim[V2 %in% c('Hard','HardPartial'), V2:='hard']
+sim[V2 %in% c('Hard-linked','HardPartial-linked'), V2:='hard-linked']
+sim[V2 %in% c('Soft','SoftPartial'), V2:='soft']
+sim[V2 %in% c('Soft-linked', 'SoftPartial-linked'), V2:='soft-linked']
+sim[V2 == 'Neutral', V2:='neutral']
+
+
+rank_fun <- function(ch = "ScA8VGg_718", im = "HIGH", ge = "Soft", obs=477){
+    sim_or <- sim[V5==ch & V2 == ge & V1 == im,V3]
+    if(length(sim_or) >0){
+        p_val <- (length(sim_or[sim_or>=obs])+1)/(length(sim_or)+1)
+    }else{
+        p_val <- NA
+    }
+    return(list("p_val" = p_val,"size" = length(sim_or),"mean_sim" = mean(sim_or)))
+}
+
+obs <- fread("all_class_pred_match.filterin", header = F, sep = "\t")
+obs[V6 %in% c('Hard','HardPartial'), V6:='hard']
+obs[V6 %in% c('Hard-linked','HardPartial-linked'), V6:='hard-linked']
+obs[V6 %in% c('Soft','SoftPartial'), V6:='soft']
+obs[V6 %in% c('Soft-linked', 'SoftPartial-linked'), V6:='soft-linked']
+obs[V6 == 'Neutral', V6:='neutral']
+
+
+obs %>% group_by(V1,V3,V6) %>% count() -> obs1
+pp <- apply(obs1,1,function(x) rank_fun(x[1],x[2],x[3],as.numeric(x[4])))
+p_df <- cbind(as.data.frame(obs1),as.data.frame(do.call(rbind,pp)))
+p_df <- as.data.table(p_df)
+p_df$p_val <- unlist(p_df$p_val)
+p_df$size <- unlist(p_df$size)
+p_df$mean_sim <- unlist(p_df$mean_sim)
+p_df[,chr:="xxxx"][V1=="ScA8VGg_76",chr:="3R"][V1=="ScA8VGg_718",chr:="2L"][V1=="ScA8VGg_542",
+                                                                            chr:="2L"][V1=="ScA8VGg_594",chr:="X"][V1=="ScA8VGg_628",chr:="3L"][V1=="ScA8VGg_785",chr:="2R"]
+
+
+p_chr <- p_df[chr!="xxxx",]
+# p_value adjust
+p_chr[,q_value:=p.adjust(p_val, method = "fdr")]
+p_chr[,enrich_fold:=n/mean_sim]
+# star label
+p_chr[q_value < 0.001, star := "***"][q_value < 0.01 & q_value >= 0.001, 
+                                      star := "**"][q_value >= 0.01 & q_value < 0.05,star := "*"][,
+                                                                                                  scf_chr := paste0(chr,":scf",substr(V1,9,nchar(V1)))]
+p_chr$V1 <- factor(p_chr$V1, c("ScA8VGg_542","ScA8VGg_718","ScA8VGg_785","ScA8VGg_628","ScA8VGg_76","ScA8VGg_594"))
+
+
+setnames(p_chr, c("scf","impact_level","genomic_class","win_n","p_val", 
+                  "sample_size","mean_sim","chr","q_value","enrich_fold","star","scf_chr"))
+
+
+# soft_only = TRUE
+
+x_lim <- c("hard", "hard-linked", "soft", "soft-linked", "neutral")
+x_lim_label <- c("hard", "hard-linked", "soft", "soft-linked", "neutral")
+# if(soft_only){
+#   p_chr <- p_chr[genomic_class %in% c("soft","linkedSoft","neutral")]
+#   x_lim <- c("neutral","linkedSoft","soft")
+# }
+
+p_chr$impact_level <- factor(p_chr$impact_level, c("HIGH","MODERATE","LOW","MODIFIER"))
+p_chr$genomic_class <- factor(p_chr$genomic_class, x_lim)
+
+
+pp <- expand.grid(impact_level = c("HIGH","MODERATE","LOW","MODIFIER"), 
+                  genomic_class = x_lim, 
+                  chr = c('2L','2R','3L','3R','X')) %>% 
+    left_join(.,  p_chr[scf != "ScA8VGg_718"], by=c('impact_level','genomic_class','chr')) %>%
+    mutate(enrich_fold=ifelse(is.na(enrich_fold),0,enrich_fold))
+
+
+ggplot(pp, aes(x = genomic_class, y = enrich_fold, fill = impact_level)) +
+    geom_bar(position = "dodge", stat = "identity") + 
+    theme_minimal() + theme(axis.text=element_text(size=11))  +
+    scale_fill_brewer(palette = "Oranges", direction = -1, drop=FALSE) +
+    scale_x_discrete(limits=x_lim, drop=FALSE, labels=x_lim_label) + 
+    geom_text(aes(label = star), position = position_dodge(0.9)) + 
+    facet_grid(rows = vars(chr)) +
+    ylab("SNP enrichment fold") + xlab("genomic class")
+ggsave("impact_genomicClass_chr_5state.pdf",width = 9, height=7, dpi=250, unit='in')
+
+
+
+## chi-square test
+cc <- table(obs$V3, obs$V6)
+chisq.test(cc)
+
+```
+        
+        
+        
+#### test GO
+
+
+/data/shared/Yiguan_Wang/doveGenome/loc_fbgn.bed
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/empiricalDat/expansionNe_classifier
+mkdir go
+cd go
+```
+        
+        
+
+```{r}
+library(data.table)
+library(dplyr)
+library(stringr)
+library(parallel)
+library(IRanges)
+####
+class2peaks <- function(dat){
+    r <- rle(dat$spl_class)
+    rr <- data.frame("len" = r$lengths, "val" = r$values)
+    rr$endWin <- cumsum(rr$len)
+    rr$startWin <- lag(rr$endWin,1,0) + 1
+    rr$start_pos <- dat[rr$startWin,V2]
+    rr$end_pos <- dat[rr$endWin,V3]
+    return(rr)
+}
+
+main <- function(aa,times) {
+    # aa <- fread(x, header = T, sep = "\t")
+    # aa <- aa[,c(1,2,3,5)]
+    aa$t1 <- lag(aa$V2,1)
+    aa$t2 <- aa$V2 - aa$t1
+    # count gaps between wins
+    aa$wingap <- aa$t2/5000
+    aa$wingap[1] <- 1
+    aa$win_seq <- 0
+    win_s = 1
+    # gap larger than 2*5000kbp were considered separately
+    for(i in 1:nrow(aa)){
+        if(aa[i,wingap]<=2){
+            aa$win_seq[i] <- win_s
+        }
+        else{
+            win_s <- win_s + 1
+            aa$win_seq[i] <- win_s
+        }
+    }
+    
+    # for each segmentation, run class2peaks
+    merge_return <- data.frame()
+    for(j in unique(aa$win_seq)){
+        sub_aa <- aa[win_seq==j,]
+        tmp <- class2peaks(sub_aa)
+        tmp$scf <- aa[1,V1]
+        tmp <- tmp[,c("scf","len","val","start_pos","end_pos")]
+        tmp$win_seq <- j
+        merge_return <- rbind(merge_return,tmp)
+    }
+    #fwrite(merge_return, paste0(x,".peak"), col.names = T, row.names = F, sep = "\t", quote = F)
+    merge_return$times <- times
+    return(merge_return)
+}
+
+
+
+##
+# paralogs for the same GO,
+# we only allow one vote for a GO if the two/multi genes within 5Kb
+
+gdist = 5000
+
+adjust_go <- function(dd){
+    #     gstart    gend          V1         V2 V3
+    # 1: 2586540 2625434 FBgn0051612 GO:0005634  C
+    # 2: 2586540 2625434 FBgn0051612 GO:0003676  F
+    # 3: 2586540 2625434 FBgn0051612 GO:0046872  F
+    ret_df <- data.table()
+    for(igo in unique(dd$V2)){
+        #print(igo)
+        dd_tmp <- dd[V2==igo]
+        ir <- IRanges(start=dd_tmp$gstart, end=dd_tmp$gend)
+        go_hit_num <- sum(gaps(ir)@width > gdist) + 1
+        ww <- unique(dd_tmp[,c('V2','V3')])
+        ww <- ww[rep(1, go_hit_num)] #%>% mutate(V1=paste0(dd_tmp$V1, collapse = ','))
+        ret_df <- rbind(ret_df, ww)
+    }
+    return(ret_df)
+}
+
+
+# simulate each time
+run_main <- function(i){
+    cat("Running times: ",i,"\n")
+    go.df <- data.table()
+    for (scf in c(542,594,628,718,76,785)){
+        predPeaks <- get(paste0("predPeaks_",scf))
+        spl_seq <- sample_n(predPeaks,nrow(predPeaks), replace = F)
+        bb <- get(paste0("bb_",scf)) %>% mutate(V1=gsub('chr','', V1))
+        bb$spl_class <- rep(spl_seq$val, spl_seq$len)
+        main_tmp <- main(bb,i)
+        main_tmp$id <- 1:nrow(main_tmp)
+        main_tmp <- main_tmp[,c("scf","start_pos","end_pos","val","id","times","len")]
+        tmp_file <- paste0(main_tmp$scf[1],"_peaks_",i,"_tmp.bed")
+        write.table(main_tmp, tmp_file,row.names = F, col.names = F, quote = F, sep = "\t")
+        #bedtools
+        merged_bed <- paste0(main_tmp$scf[1],"_peaks_",i,"_tmp.txt")
+        snp_bed <- paste0("ScA8VGg_",scf,"_snp_tmp.bed")
+        cmd1 <- paste0("bedtools intersect -a ",snp_bed," -b ",tmp_file," -wo > ", merged_bed)
+        system(cmd1)
+        # remove tmp file
+        file.remove(tmp_file)
+        # read merged file
+        merge_tmp <- fread(merged_bed, header = F, sep = "\t")
+        file.remove(merged_bed)
+        merge_tmp1 <- merge_tmp[,c(1,2,3,4,7,8,9)]
+        #soft
+        soft <- merge_tmp1[V9 %in% c("Soft", "SoftPartial")]
+        if(nrow(soft) != 0){
+            soft_tmp <-  paste0(main_tmp$scf[1],"_soft_",i,"_tmp.txt")
+            fwrite(soft, soft_tmp, sep = "\t", row.names = F, col.names = F, quote = F)
+            soft_intersect.tmp <- paste0(main_tmp$scf[1],"_soft_",i,"_tmp.bed")
+            cmd2 <- paste0("bedtools intersect -a ",soft_tmp," -b ~/myData/phd/p2/FBgn.bed -wo > ", soft_intersect.tmp)
+            system(cmd2)
+            file.remove(soft_tmp)
+            if(file.size(soft_intersect.tmp) > 0){
+                fbgn.hit.soft <- fread(soft_intersect.tmp, header = F, sep = "\t", select = c("V9", "V10", "V11"))
+                names(fbgn.hit.soft) <- c("gstart","gend","V1")
+                fbgn.hit.soft.1 <- inner_join(unique(fbgn.hit.soft),unique(FBgn_GO), by = "V1") 
+                fbgn.hit.soft.2 <- adjust_go(fbgn.hit.soft.1)
+                if(nrow(fbgn.hit.soft.2) > 0){
+                    fbgn.hit.soft.2$V4 <- "soft"
+                    go.df <- rbind(go.df,fbgn.hit.soft.2)
+                }
+            }
+            file.remove(soft_intersect.tmp)
+        }
+        
+        #hard
+        hard <- merge_tmp1[V9 %in% c("Hard", "HardPartial")]
+        if(nrow(hard)!= 0){
+            hard_tmp <-  paste0(main_tmp$scf[1],"_hard_",i,"_tmp.txt")
+            fwrite(hard, hard_tmp, sep = "\t", row.names = F, col.names = F, quote = F)
+            hard_intersect.tmp <- paste0(main_tmp$scf[1],"_hard_",i,"_tmp.bed")
+            cmd3 <- paste0("bedtools intersect -a ",hard_tmp," -b ~/myData/phd/p2/FBgn.bed -wo > ", hard_intersect.tmp)
+            system(cmd3)
+            file.remove(hard_tmp)
+            if(file.size(hard_intersect.tmp) > 0){
+                fbgn.hit.hard <- fread(hard_intersect.tmp, header = F, sep = "\t",  select = c("V9", "V10", "V11"))
+                names(fbgn.hit.hard) <- c("gstart","gend","V1")
+                fbgn.hit.hard.1 <- inner_join(unique(fbgn.hit.hard),unique(FBgn_GO), by = "V1")
+                fbgn.hit.hard.2 <- adjust_go(fbgn.hit.hard.1)
+                if(nrow(fbgn.hit.hard.2) > 0){
+                    fbgn.hit.hard.2$V4 <- "hard"
+                    go.df <- rbind(go.df,fbgn.hit.hard.2)
+                }
+            }
+            file.remove(hard_intersect.tmp)
+        }
+    }
+    go.df %>% group_by(V2,V3,V4) %>% count() -> go.df
+    go.df$times <- i
+    out.sim.file <- paste0("GO_sim_",i,".txt")
+    fwrite(go.df, out.sim.file, col.names = F, sep = "\t")
+    cat("Finished times: ",i,"\n")
+}
+
+# scf218, scf608 not include for a few peaks to sample(3 and 2, respectively)
+FBgn_GO <- fread("~/myData/phd/p2/Fbgn_GO_geneName.txt", select=c(1,3,4), header = F, sep = "\t")
+names(FBgn_GO) <- c("V1","V2","V3")
+for (scfid in c(542,594,628,718,76,785)){
+    # create constant dataset for simulation, maintain variables in memory
+    peakFile <- paste0("../ScA8VGg_",scfid,".bed.peak")
+    assign(paste0("predPeaks_",scfid), fread(peakFile))
+    
+    bbFile <- paste0("../ScA8VGg_",scfid,".bed")
+    assign(paste0("bb_",scfid), fread(bbFile, select=c(1,2,3), skip=1L, header=FALSE))
+    
+    ## create bed file, write to hard drive
+    impactFile <- paste0("~/myData/phd/p2/ScA8VGg_",scfid,".impact")
+    im <- fread(impactFile)
+    ##filter SNPs based on file:
+    filter_file <- paste0("../ScA8VGg_",scfid,"class_pred_match.filterin")
+    keep_pos <- fread(filter_file, select = c("V2"))
+    im[V2 %in% keep_pos$V2] -> im
+    im[,scf:=paste0("ScA8VGg_",scfid)][!is.na(scf),id:=1:.N][,V1:=NULL][,V5:=V2]
+    setcolorder(im,c("scf","V2","V5","V3","id"))
+    snp_bed <- paste0("ScA8VGg_",scfid,"_snp_tmp.bed")
+    fwrite(im,snp_bed, col.names = F, sep = "\t")
+}
+
+
+mclapply(1:10000, run_main, mc.cores = 24)
+```
+        
+        
+Merge all simulated files
+
+```{bash}
+cat GO_sim*.txt > all_soft_hard_10k_times.sim
+tar czvf GO_sim_xxxx.txt.tar.gz $(ls GO_sim*.txt)
+ls  GO_sim*.txt | xargs rm
+
+```
+        
+        
+        
+Observe GO terms
+
+```{R}
+# setwd('~/myData/phd/p2/discoal_simu_partialSHIC/empiricalDat/expansionNe_classifier')
+library(data.table)
+library(dplyr)
+library(IRanges)
+
+bed <- fread('~/myData/phd/p2/FBgn.bed', header=FALSE, sep='\t', select=1:4) %>% 
+    setNames(c('scf','gstart', 'gend', 'V1'))
+go <- fread("~/myData/phd/p2/Fbgn_GO_geneName.txt", header = FALSE, sep ="\t")
+so <- fread("./soft_fbgn.txt", header = FALSE, sep ="\t") %>%
+    left_join(.,bed, by='V1') %>% left_join(., go, by='V1')
+
+ha <- fread("./hard_fbgn.txt", header = FALSE, sep ="\t") %>%
+    left_join(.,bed, by='V1') %>% left_join(., go, by='V1')
+
+
+
+
+gdist = 5000
+
+adjust_go <- function(dd){
+    #     V1         scf   gstart     gend      V2         V3 V4
+    # 1: FBgn0032464 ScA8VGg_542    84394    87162 Vha68-3 GO:0000221  C
+    # 2: FBgn0032464 ScA8VGg_542    84394    87162 Vha68-3 GO:0046961  F
+    # 3: FBgn0032464 ScA8VGg_542    84394    87162 Vha68-3 GO:0046034  P
+    # 4: FBgn0032464 ScA8VGg_542    84394    87162 Vha68-3 GO:0015991  P
+    
+    ret_df <- data.table()
+    for(igo in unique(dd$V3)){
+        #print(igo)
+        dd_tmp <- dd[V3==igo]
+        for(ss in unique(dd_tmp$scf)){
+            dd_tmp_tmp <- dd_tmp[scf==ss,]
+            ir <- IRanges(start=dd_tmp_tmp$gstart, end=dd_tmp_tmp$gend)
+            go_hit_num <- sum(gaps(ir)@width > gdist) + 1
+            ww <- unique(dd_tmp_tmp[,c('V3','V4')])
+            ww <- ww[rep(1, go_hit_num)] %>% mutate(V1=paste0(dd_tmp_tmp$V1, collapse = ','))
+            ret_df <- rbind(ret_df, ww)
+        }
+    }
+    return(ret_df)
+}
+
+
+so_go_counts <- adjust_go(so)
+
+ha_go_counts <- adjust_go(ha)
+
+
+fwrite(so_go_counts,"soft_FBgn_GOcounts.txt", col.names = FALSE, row.names = FALSE, quote=FALSE, sep="\t")
+fwrite(ha_go_counts,"hard_FBgn_GOcounts.txt", col.names = FALSE, row.names = FALSE, quote=FALSE, sep="\t")
+```
+        
+        
+        
+        
+#### Summary GO terms
+
+```{r}
+# https://www.biomedware.com/files/documentation/clusterseer/MCR/Calculating_Monte_Carlo_p-values.htm
+library(data.table)
+library(dplyr)
+
+cal_p <- function(line,sORh){
+    df <- get(paste0(sORh,".obs.go"))
+    go.term <- df[[line,1]]
+    go.count <- df[[line,2]]
+    aa.sORh <- get(paste0("aa.",sORh))
+    aa.sORh.sub <- aa.sORh[V1== go.term]
+    if(aa.sORh.sub[,.N] > 0){
+        p_raw <- (aa.sORh.sub[aa.sORh.sub$V4 >= go.count,.N] + 1)/(aa.sORh.sub[,.N] + 1)
+    }else{
+        p_raw <- NA
+    }
+    ret <- list(p = p_raw, sim_mean = mean(aa.sORh.sub$V4), n_size = aa.sORh.sub[,.N])
+    return(ret)
+}
+
+aa <- fread("./go/all_soft_hard_10k_times.sim", header = F, sep = "\t")
+aa.component <- unique(aa[,c(1,2)])
+names(aa.component) <- c("GO","category")
+#soft
+aa.soft <- aa[V3=="soft"]
+soft.obs <- fread("soft_FBgn_GOcounts.txt", header = F, sep = "\t")
+names(soft.obs) <- c("V2","V3","V1")
+soft.obs %>% group_by(V2) %>% count() -> soft.obs.go
+tt <- sapply(1:nrow(soft.obs.go), function(x) cal_p(x,"soft"))
+soft.obs.go$p_val <- unlist(tt[1,])
+soft.obs.go$sim_mean <- unlist(tt[2,])
+soft.obs.go$n_size <- unlist(tt[3,])
+names(soft.obs.go) <- c("GO","obs_hit","p_val","sim_mean","n_size")
+soft.obs.go$enrich_fold <- soft.obs.go$obs_hit/soft.obs.go$sim_mean
+soft.obs.go$q.whole <- 999
+soft.obs.go$q.1side <- 999
+soft.obs.go <- as.data.table(soft.obs.go)
+# p adjust for the whole data set
+soft.obs.go[,q.whole := p.adjust(soft.obs.go$p_val, "fdr")]
+# p adjust with one side: enrichment fold > 1 removed
+soft.obs.go[enrich_fold > 1, q.1side := p.adjust(soft.obs.go[enrich_fold > 1,p_val], "fdr")]
+
+soft.out <- left_join(soft.obs.go, aa.component, by = "GO")
+soft.out<- soft.out[,c("GO","category","obs_hit","sim_mean","enrich_fold","n_size","p_val","q.whole","q.1side")]
+fwrite(soft.out,"soft_GO_enrichment.test",col.names = T, sep = "\t",na = "NA", quote = F)
+
+#hard
+aa.hard <- aa[V3=="hard"]
+hard.obs <- fread("hard_FBgn_GOcounts.txt", header = F, sep = "\t")
+names(hard.obs) <- c("V2","V3","V1")
+hard.obs %>% group_by(V2) %>% count() -> hard.obs.go
+tt <- sapply(1:nrow(hard.obs.go), function(x) cal_p(x,"hard"))
+hard.obs.go$p_val <- unlist(tt[1,])
+hard.obs.go$sim_mean <- unlist(tt[2,])
+hard.obs.go$n_size <- unlist(tt[3,])
+names(hard.obs.go) <- c("GO","obs_hit","p_val","sim_mean","n_size")
+hard.obs.go$enrich_fold <- hard.obs.go$obs_hit/hard.obs.go$sim_mean
+hard.obs.go$q.whole <- 999
+hard.obs.go$q.1side <- 999
+hard.obs.go$q.1side.lt1 <- 999
+hard.obs.go <- as.data.table(hard.obs.go)
+# p adjust for the whole data set
+hard.obs.go[,q.whole := p.adjust(hard.obs.go$p_val, "fdr")]
+# p adjust with one side: enrichment fold > 1 removed
+hard.obs.go[enrich_fold > 1, q.1side := p.adjust(hard.obs.go[enrich_fold > 1,p_val], "fdr")]
+
+hard.out <- left_join(hard.obs.go, aa.component, by = "GO")
+hard.out<- hard.out[,c("GO","category","obs_hit","sim_mean","enrich_fold","n_size","p_val","q.whole","q.1side")]
+fwrite(hard.out,"hard_GO_enrichment.test",col.names = T, sep = "\t", na = "NA", quote = F)
+
+```
+        
+        
+        
+        
+```{bash}
+# cd ~/myData/phd/p2/discoal_simu_partialSHIC/empiricalDat/expansionNe_classifier
+awk 'BEGIN{OFS="\t"}NR>1 && $9<0.05{print $1,$2,$3,$4,$5,$9}' soft_GO_enrichment.test > soft_GO_enrichment.test.sig
+sed -i '1 i goID\tclass\t\obsHit\texpMean\tenrichFold\tPadj' soft_GO_enrichment.test.sig
+awk 'BEGIN{OFS="\t"}NR>1 && $9<0.05{print $1,$2,$3,$4,$5,$9}' hard_GO_enrichment.test > hard_GO_enrichment.test.sig
+sed -i '1 i goID\tclass\t\obsHit\texpMean\tenrichFold\tPadj' hard_GO_enrichment.test.sig
+```
+        
+```
+0 hard_GO_enrichment.test.sig
+352 soft_GO_enrichment.test.sig
+```
+        
+        
+link fbgn to gene name
+
+```{R}
+library(data.table)
+library(dplyr)
+aa <- fread("~/myData/phd/p2/Fbgn_GO_geneName.txt", header=F, sep= "\t")
+a1 <- aa[,1:2] %>% unique
+
+so <- fread("soft_fbgn.txt", header=F, sep="\t")
+left_join(so,a1,by="V1") %>% as.data.table -> so_gene
+write.csv(so_gene,"soft_fbgn_geneName.csv")
+ha <- fread("hard_fbgn.txt", header=F, sep="\t")
+left_join(ha,a1,by="V1") %>% as.data.table -> ha_gene
+write.csv(ha_gene,"hard_fbgn_geneName.csv")
+```
+        
+link GO to description
+
+```{r}
+library(data.table)
+library(dplyr)
+
+go <- fread("~/myData/phd/DsrtRef/go_terms.mgi", header=F, sep="\t")
+names(go) <- c("category","goID","description")
+
+so <- fread("soft_GO_enrichment.test.sig", header=T, sep="\t")
+left_join(so,go,by="goID") %>% mutate(category=NULL) %>% as.data.table -> so_out
+write.csv(so_out,"soft_sigGO_description.csv")
+
+ha <- fread("hard_GO_enrichment.test.sig", header=T, sep="\t")
+left_join(ha,go,by="goID") %>% mutate(category=NULL) %>% as.data.table -> ha_out
+write.csv(ha_out,"hard_sigGO_description.csv")
+```
+        
+        
+        
+        
+#### Hight interest genes
+
+
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/empiricalDat/expansionNe_classifier
+mkdir plotGene
+cd plotGene
+```
+
+
+```{bash}
+
+#!/bin/bash
+
+Usage() {
+  echo "Usage: ${0} [-s|--start] [-e|--end] [-i|--scfid] [-gn|--gene-name] [-gr|--gene-range]" 1>&2
+  exit 1
+}
+
+while [[ ${#} -gt 0 ]];do
+  key=${1}
+  case ${key} in  
+    -s|--start)
+      START=${2}
+      shift 2
+      ;;  
+    -e|--end)
+      END=${2}
+      shift 2
+      ;;  
+    -i|--scfid)
+      SCFID=${2}
+      shift 2
+      ;;  
+    -gn|--gene-name)
+      GENENAME=${2}
+      shift 2
+      ;;
+    -gr|--gene-range)
+      GENERANGE=${2}
+      shift 2
+      ;;
+    *)  
+      Usage
+      shift
+    ;;  
+  esac
+done
+#START=5000000
+#END=6000000
+#SCFID=785
+#GENE=Cyp6a9 # use exact name as gene_annotation_redo.txt file
+
+if [[ -n ${GENENAME} ]];then
+  GENE=${GENENAME}
+elif [[ -n ${GENERANGE} ]];then
+  GENE=scf${SCFID}_${GENERANGE/-/_}
+else
+  echo "Gene argument error" 1>&2
+  exit 1;
+fi
+
+if [ ! -d  ${GENE} ];then
+  mkdir -p ${GENE}
+fi
+
+awk -v s=${START} -v e=${END} 'BEGIN{OFS="\t"}$2>s && $3<e{print $1,$2,$3,$9,$10}' ~/myData/phd/p2/h12/ScA8VGg_${SCFID}.filtered.H12out.txt > ./${GENE}/${GENE}.h12
+
+awk -v s=${START} -v e=${END} 'NR>1 && $4>s && $5<e{print $0}' ../ScA8VGg_${SCFID}.bed.peak > ./${GENE}/${GENE}.pred
+
+awk -v s=${START} -v e=${END} 'NR>1 && $2>s && $2<e && $3!="NA"{print $0}' ~/myData/phd/p2/ihs/ScA8VGg_${SCFID}.pval.txt > ./${GENE}/${GENE}.ihs
+
+awk  -v s=${START} -v e=${END} -v scf=ScA8VGg_${SCFID} 'BEGIN{OFS="\t"}$9~scf && $10>s && $11<e && $7!="NA"{print $6,$7,$10,$11}' ~/myData/phd/DsrtRef/mRNA_new_genome_annotation_redo.txt > ./${GENE}/${GENE}.gene
+
+cd ${GENE}
+echo "Wokring to R"
+echo "Rscript ../plot.R ${GENE} ${START} ${END}"
+```
+
+
+
+Save following code as `plot.R` 
+```{r}
+library(data.table)
+library(ggplot2)
+library(RColorBrewer)
+library(cowplot)
+library(stringr)
+
+args = commandArgs(trailingOnly=TRUE)
+# args = c('scf628_15930481_15932083', 15000000, 16500000)
+ihs.file <- paste0(args[1],".ihs")
+ihs <- fread(ihs.file, header = F, sep = "\t", select = c("V2","V4"))
+names(ihs) <- c("pos","value")
+ihs[,statistic := "piHS"]
+
+h12.file <- paste0(args[1],".h12")
+h12 <- fread(h12.file, header = F, sep = "\t", select = c("V1","V2","V3","V4"))
+h12[,statistic := "H12"]
+h12 <- h12[,c("V3","V4","statistic")]
+names(h12) <- c("pos","value","statistic")
+
+shic.file <- paste0(args[1],".pred")
+shic <- fread(shic.file, header = F, sep = "\t", select = c("V3","V4","V5"))
+
+x_lim <- c("Hard", "Hard-linked", "HardPartial", "HardPartial-linked",
+           "Soft", "Soft-linked", "SoftPartial", "SoftPartial-linked",
+           "Neutral")
+shic$V3 <- factor(shic$V3, x_lim)
+
+df.plot <- rbind(h12,ihs)
+df.plot$statistic <- factor(df.plot$statistic,levels=c("H12","piHS"))
+
+gene.file <- paste0(args[1],".gene")
+all.gene <- fread(gene.file, header = F, sep = "\t")
+
+all.gene[,yMIN:=0][,yMAX:=1][,tt:="Genes"][,gene_col:="grey"]
+if(all.gene[V1 %like% args[1],.N] == 0){
+    all.gene <- rbind(all.gene, data.table(V1=args[1],V2="xxxx",V3=as.numeric(str_split(args[1],"_")[[1]][2]),
+                                           V4=as.numeric(str_split(args[1],"_")[[1]][3]),
+                                           yMIN=0, yMAX=1, tt="Genes",gene_col="Black" ))
+}else{
+    all.gene[V1 %like% args[1], gene_col := "black"]
+}
+
+my.soft.col <- brewer.pal(9,"Reds")
+my.partialSoft.col <- brewer.pal(9,"Purples")
+my.hard.col <- brewer.pal(9,"Blues")
+my.partialHard.col <- brewer.pal(9, 'Greens')
+
+
+df.plot <- as.data.table(df.plot)
+df.plot[statistic == "H12",y_min := 0]
+df.plot[statistic == "H12",y_max := 0.1]
+df.plot[statistic == "piHS",y_min := 0]
+df.plot[statistic == "piHS",y_max := 15]
+
+thre <- data.frame("statistic" = c("H12","piHS"), "vv"=c(0.022,4.08))
+thre$statistic <- factor(thre$statistic, levels=c("H12","piHS"))
+
+p1 <- ggplot() + geom_line(data = df.plot, aes(x = pos, y = value)) +
+    geom_ribbon(aes(x = pos, ymax = value), ymin = 0, data = df.plot, fill = "black") + 
+    geom_hline(data=thre, aes(yintercept = vv), linetype="dashed") +
+    facet_grid(statistic ~., scales = "free_y") + 
+    geom_blank(data = df.plot, aes(y = y_min)) + geom_blank(data = df.plot, aes(y = y_max)) +
+    theme_classic() + 
+    geom_rect(data = shic, aes(xmin = V4, xmax = V5, ymin=-Inf,ymax=Inf, fill = as.factor(V3)),alpha = 0.4) +
+    scale_fill_manual(name='', values=c("Neutral"="grey60", 
+                                        "SoftPartial-linked"=my.partialSoft.col[4], 
+                                        "SoftPartial"=my.partialSoft.col[6],
+                                        "Soft-linked"=my.soft.col[4],
+                                        "Soft"=my.soft.col[6],
+                                        "HardPartial-linked"=my.partialHard.col[4], 
+                                        "HardPartial"=my.partialHard.col[6],
+                                        "Hard-linked"=my.hard.col[4],
+                                        "Hard"=my.hard.col[6])) +
+    guides(fill = guide_legend(override.aes = list(alpha = 1))) + 
+    theme(axis.text.x = element_blank(),axis.ticks.x = element_blank(),axis.title.x=element_blank(),axis.line.x=element_blank()) +
+    scale_y_continuous(expand = c(0, 0)) + scale_x_continuous(limits = c(as.numeric(args[2]), as.numeric(args[3])))
+
+
+p2 <- ggplot() + geom_rect(data = all.gene, aes(xmin = V3, xmax = V4, ymin=-yMIN,ymax=yMAX, fill = as.factor(gene_col))) +
+    theme_classic() + #acet_grid(tt ~., scales = "free_y") + 
+    scale_fill_manual(values = c("black","grey80")) +
+    scale_y_continuous(expand = c(0, 0)) + 
+    scale_x_continuous(limits = c(as.numeric(args[2]), as.numeric(args[3]))) +
+    theme(legend.position = "none", axis.text.y = element_blank(),axis.ticks.y = element_blank(), axis.line.y=element_blank()) +
+    theme(strip.background = element_blank(),strip.text = element_blank()) + 
+    geom_rect(data = all.gene[V1 %like% args[1]], aes(xmin = V3, xmax = V4, ymin=-yMIN,ymax=yMAX), col = 'black') #+
+# geom_vline(xintercept = mean(all.gene[V1 %like% args[1],c(V3,V4)]), size = 1)
+
+pout <- plot_grid(p1, p2, align = "v", axis= "rl", nrow = 2, rel_heights = c(9/10,1/10))
+ggsave('my_plot.pdf', pout, width=8, height=6, unit='in', dpi=200)
+```
+
+
+
+
+
+
+### constNe classifier
+
+#### Run classifier
+
+```{bash}
+export ss='constNe'
+
+mkdir ${ss}_classifier
+
+pred() {
+    echo ${1}
+    python3 ~/partialSHIC/empirical_deep_learning_classify.py \
+    ../${ss}/${ss}.npy \
+    ${1} \
+    11 92 \
+    ./${ss}_classifier/${1/all.fvec/bed}
+}
+
+export -f pred
+
+ls  ScA8VGg_[0-9]*.all.fvec | parallel -j 3 pred
+
+```
+
+#### Summary prediction
+
+
+
+```
+V1     N          pct
+1:            Neutral 11758 0.5225081100
+2: SoftPartial-linked    11 0.0004888237
+3:        SoftPartial     5 0.0002221926
+4:        Soft-linked  7836 0.3482202373
+5:               Soft  1836 0.0815891215
+6: HardPartial-linked    26 0.0011554015
+7:        HardPartial    13 0.0005777008
+8:        Hard-linked   890 0.0395502822
+9:               Hard   128 0.0056881305
+```
+
+
+```
+86 Hard
+404 Hard-linked
+10 HardPartial
+13 HardPartial-linked
+1644 Neutral
+1276 Soft
+2232 Soft-linked
+5 SoftPartial
+9 SoftPartial-linke
+```
+
+
+```
+120 hard_fbgn.txt
+1957 soft_fbgn.txt
+```
+
+```
+0 hard_GO_enrichment.test.sig
+213 soft_GO_enrichment.test.sig
+```
+
+
+
+### shortSevere classifier
+
+#### Run classifier
+
+
+```{bash}
+export ss='shortSevere'
+
+mkdir ${ss}_classifier
+
+pred() {
+    echo ${1}
+    python3 ~/partialSHIC/empirical_deep_learning_classify.py \
+    ../${ss}/${ss}.npy \
+    ${1} \
+    11 92 \
+    ./${ss}_classifier/${1/all.fvec/bed}
+}
+
+export -f pred
+
+ls  ScA8VGg_[0-9]*.all.fvec | parallel -j 6 pred
+
+```
+
+
+#### Summary prediction
+
+
+```
+V1     N           pct
+1:            Neutral  4730 0.21019419633
+2: SoftPartial-linked    21 0.00093320891
+3:        SoftPartial     8 0.00035550815
+4:        Soft-linked 14364 0.63831489135
+5:               Soft  1853 0.08234457628
+6: HardPartial-linked    17 0.00075545483
+7:        HardPartial     1 0.00004443852
+8:        Hard-linked  1332 0.05919210772
+9:               Hard   177 0.00786561792
+
+```
+
+
+```
+118 Hard
+578 Hard-linked
+1 HardPartial
+10 HardPartial-linked
+827 Neutral
+1418 Soft
+2182 Soft-linked
+8 SoftPartial
+20 SoftPartial-linked
+```
+
+```
+121 hard_fbgn.txt
+2176 soft_fbgn.txt
+```
+
+
+```
+0 hard_GO_enrichment.test.sig
+488 soft_GO_enrichment.test.sig
+```
+
+
+### longShallow classifier
+
+#### Run classifier
+
+
+```{bash}
+export ss='longShallow'
+
+mkdir ${ss}_classifier
+
+pred() {
+    echo ${1}
+    python3 ~/partialSHIC/empirical_deep_learning_classify.py \
+    ../${ss}/${ss}.npy \
+    ${1} \
+    11 92 \
+    ./${ss}_classifier/${1/all.fvec/bed}
+}
+
+export -f pred
+
+ls  ScA8VGg_[0-9]*.all.fvec | parallel -j 6 pred
+
+```
+
+
+#### Summary prediction
+
+
+```
+V1     N          pct
+1:            Neutral  8355 0.3712838288
+2: SoftPartial-linked   104 0.0046216060
+3:        SoftPartial    17 0.0007554548
+4:        Soft-linked 11018 0.4896236057
+5:               Soft  1744 0.0775007777
+6: HardPartial-linked    75 0.0033328889
+7:        HardPartial    23 0.0010220859
+8:        Hard-linked  1066 0.0473714616
+9:               Hard   101 0.0044882905
+```
+
+```
+64 Hard
+471 Hard-linked
+21 HardPartial
+57 HardPartial-linked
+983 Neutral
+1310 Soft
+2173 Soft-linked
+16 SoftPartial
+81 SoftPartial-linked
+```
+
+```
+83 hard_fbgn.txt
+1789 soft_fbgn.txt
+```
+
+
+```
+0 hard_GO_enrichment.test.sig
+211 soft_GO_enrichment.test.sig
+```
+
+
+
+
+## ROC
+
+
+
+No output of probability, cannot do ROC.
+
+
+```{bash}
+cd ~/myData/phd/p2/discoal_simu_partialSHIC
+
+mkdir roc && cd roc
+
+mkdir expansionNe_dat 
+cp ../expansionNe/test_self_newDat/FVs/*fvec expansionNe_dat
+
+mkdir shortSevere_dat 
+cp ../shortSevere/test_self_newDat/FVs/*fvec shortSevere_dat 
+
+mkdir longShallow_dat 
+cp ../longShallow/test_self_newDat/FVs/*fvec longShallow_dat
+
+mkdir constNe_dat
+cp ../constNe/test_self_newDat/FVs/*fvec constNe_dat
+```
+
+
+
+
+```{bash}
+
+##################
+# expansionNe data
+
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/roc/expansionNe_dat
+
+for classifier in constNe expansionNe shortSevere longShallow;do
+    python3 ~/partialSHIC/testing_deep_learning_classify_prob.py \
+        ../../${classifier}/${classifier}.npy \
+        ./ \
+        11 92 \
+        ./ \
+        ${classifier}Classifier_expansionNeDat
+done
+    
+################
+# constNe data
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/roc/constNe_dat
+
+for classifier in constNe expansionNe shortSevere longShallow;do
+    python3 ~/partialSHIC/testing_deep_learning_classify_prob.py \
+    ../../${classifier}/${classifier}.npy \
+    ./ \
+    11 92 \
+    ./ \
+    ${classifier}Classifier_constNeDat
+done
+
+##################
+# longShallow data
+
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/roc/longShallow_dat
+
+for classifier in constNe expansionNe shortSevere longShallow;do
+    python3 ~/partialSHIC/testing_deep_learning_classify_prob.py \
+        ../../${classifier}/${classifier}.npy \
+        ./ \
+        11 92 \
+        ./ \
+        ${classifier}Classifier_longShallowDat
+done
+
+
+##################
+# shortSevere data
+
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/roc/shortSevere_dat
+
+for classifier in constNe expansionNe shortSevere longShallow;do
+    python3 ~/partialSHIC/testing_deep_learning_classify_prob.py \
+        ../../${classifier}/${classifier}.npy \
+        ./ \
+        11 92 \
+        ./ \
+        ${classifier}Classifier_shortSevereDat
+done
+    
+  
+```
+
+
+
+
+
+```{r}
+setwd('~/myData/phd/p2/discoal_simu_partialSHIC/roc')
+library(data.table)
+library(stringr)
+library(dplyr)
+library(plotROC)
+library(pROC)
+library(cowplot)
+
+ffs <- list.files(pattern = '*_pred.prob', recursive = TRUE)
+
+
+aa <- data.table()
+
+for(ff in ffs){
+    Classifier <- str_split(basename(ff),'_')[[1]][1] %>% str_replace(.,'Classifier', '')
+    Vali <- str_split(basename(ff),'_')[[1]][2] %>% str_replace(.,'Dat', '')
+    tmp <- fread(ff, header = TRUE, sep = '\t') %>%
+        mutate(iclassifier = Classifier) %>%
+        mutate(ivali = Vali)
+    aa <- rbind(aa, tmp)
+    
+}
+
+
+aa[Class %like% '5', predClass:='sweep']
+aa[! Class %like% '5', predClass:='other']
+aa[,probSweep:=Hard+Soft+HardPartial+SoftPartial]
+
+
+P1 <- ggplot(data=aa[iclassifier=='constNe'], aes(d=predClass, m=probSweep, color=ivali)) + 
+    geom_roc(labels=FALSE, pointsize=0) + 
+    geom_abline(intercept=0, slope=1, lty="dashed", colour="grey") + 
+    xlab("False positive rate") + 
+    ylab("True positive rate") +
+    scale_color_discrete(name='train/test (AUC)', labels=c(
+        'constNe/constNe (89.9%)',
+        'constNe/expansionNe (86.6%)',
+        'constNe/longShallow (89.6%)',
+        'constNe/shortSevere (87.6%)'
+    )) +
+    theme_classic() + 
+    theme(legend.position = c(0.67, 0.2), axis.text=element_text(size=12), legend.title.align=0.1,
+          axis.title=element_text(size=12), legend.text=element_text(size=11), legend.title=element_text(size=12))
+
+P2 <- ggplot(data=aa[iclassifier=='expansionNe'], aes(d=predClass, m=probSweep, color=ivali)) + 
+    geom_roc(labels=FALSE, pointsize=0) + 
+    geom_abline(intercept=0, slope=1, lty="dashed", colour="grey") + 
+    xlab("False positive rate") + 
+    ylab("True positive rate") +
+    scale_color_discrete(name='train/test (AUC)', labels=c(
+        'expansionNe/constNe (88.9%)',
+        'expansionNe/expansionNe (89.9%)',
+        'expansionNe/longShallow (87.8%)',
+        'expansionNe/shortSevere (88.5%)'
+    )) +
+    theme_classic() + 
+    theme(legend.position = c(0.67, 0.2), axis.text=element_text(size=12), legend.title.align=0.1,
+          axis.title=element_text(size=12), legend.text=element_text(size=11), legend.title=element_text(size=12))
+
+
+
+P3 <- ggplot(data=aa[iclassifier=='longShallow'], aes(d=predClass, m=probSweep, color=ivali)) + 
+    geom_roc(labels=FALSE, pointsize=0) + 
+    geom_abline(intercept=0, slope=1, lty="dashed", colour="grey") + 
+    xlab("False positive rate") + 
+    ylab("True positive rate") +
+    scale_color_discrete(name='train/test (AUC)', labels=c(
+        'longShallow/constNe (88.7%)',
+        'longShallow/expansionNe (84.5%)',
+        'longShallow/longShallow (89.4%)',
+        'longShallow/shortSevere (85.9%)'
+    )) +
+    theme_classic() + 
+    theme(legend.position = c(0.67, 0.2), axis.text=element_text(size=12), legend.title.align=0.1,
+          axis.title=element_text(size=12), legend.text=element_text(size=11), legend.title=element_text(size=12))
+
+P4 <- ggplot(data=aa[iclassifier=='shortSevere'], aes(d=predClass, m=probSweep, color=ivali)) + 
+    geom_roc(labels=FALSE, pointsize=0) + 
+    geom_abline(intercept=0, slope=1, lty="dashed", colour="grey") + 
+    xlab("False positive rate") + 
+    ylab("True positive rate") +
+    scale_color_discrete(name='train/test (AUC)', labels=c(
+        'shortSevere/constNe (90.2%)',
+        'shortSevere/expansionNe (89.1%)',
+        'shortSevere/longShallow (89.6%)',
+        'shortSevere/shortSevere (89.3%)'
+    )) +
+    theme_classic() + 
+    theme(legend.position = c(0.67, 0.2), axis.text=element_text(size=12), legend.title.align=0.1,
+          axis.title=element_text(size=12), legend.text=element_text(size=11), legend.title=element_text(size=12))
+
+
+plot_grid(P1, P2, P3, P4, nrow=2, labels=c('constNe classifier','expansionNe classifier', 
+                                           'longShallow classifier','shortSevere classifier'))
+ggsave('roc.pdf', width=10, height=9, unit='in', dpi=300)
+
+
+
+
+# calculate AUC
+aa[iclassifier=='shortSevere' & ivali=='shortSevere'] -> qq
+auc(qq$predClass, qq$probSweep)
+
+```
+
+
+
+
+
+
+
+## Comparison
+
+### proportion
+
+```{r}
+setwd('~/myData/phd/p2/discoal_simu_partialSHIC/empiricalDat')
+library(data.table)
+library(stringr)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+
+my.soft.col <- brewer.pal(9,"Reds")
+my.partialSoft.col <- brewer.pal(9,"Purples")
+my.hard.col <- brewer.pal(9,"Blues")
+my.partialHard.col <- brewer.pal(9, 'Greens')
+
+
+
+beds <- list.files(pattern = 'ScA8VGg_[0-9]*.bed$', recursive = TRUE)
+beds <- beds[!str_detect(beds,'old')]
+
+aa <- data.table()
+
+for(bed in beds){
+    classifier <- str_split(bed, '_')[[1]][1]
+    tmp <- fread(bed, skip=1L, sep='\t', header=FALSE, select=1:4) %>%
+        extract(V4,'istate','(.*)_S,*') %>% 
+        mutate(Classifier = classifier)
+    aa <- rbind(aa, tmp)    
+    
+}
+
+aa[V1 %in% c('chrScA8VGg_542','chrScA8VGg_718'), chr:='2L']
+aa[V1 == 'chrScA8VGg_785', chr:='2R']
+aa[V1 == 'chrScA8VGg_628', chr:='3L']
+aa[V1 == 'chrScA8VGg_76', chr:='3R']
+aa[V1 == 'chrScA8VGg_594', chr:='X']
+
+
+a1 <- aa[,.N,by=c('istate','Classifier')]
+a1 <- a1[,.(prop=N/sum(N), istate=istate), by = Classifier]
+a1[istate %in% c('Hard', 'HardPartial'), istate2:='hard']
+a1[istate %in% c('Hard-linked', 'HardPartial-linked'), istate2:='hard-linked']
+a1[istate %in% c('Soft', 'SoftPartial'), istate2:='soft']
+a1[istate %in% c('Soft-linked', 'SoftPartial-linked'), istate2:='soft-linked']
+a1[istate=='Neutral', istate2:='neutral']
+
+a1[istate2 %in% c('hard','soft'), istate3:='sweep']
+a1[istate2 %in% c('hard-linked','soft-linked'), istate3:='sweep-linked']
+a1[istate2 == 'neutral', istate3:='neutral']
+
+a1$istate <- factor(a1$istate, levels=rev(c("Hard","HardPartial", "Soft","SoftPartial",
+                                            "Hard-linked", "HardPartial-linked",
+                                            "Soft-linked", "SoftPartial-linked", "Neutral")))
+
+ggplot(a1, aes(x = Classifier, y = prop, fill = istate)) + 
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values=c("Neutral"="grey60", 
+                               "SoftPartial-linked"=my.partialSoft.col[4], 
+                               "Soft-linked"=my.soft.col[4],
+                               "HardPartial-linked"=my.partialHard.col[4], 
+                               "Hard-linked"=my.hard.col[4],
+                               "SoftPartial"=my.partialSoft.col[6],
+                               "Soft"=my.soft.col[6],
+                               "HardPartial"=my.partialHard.col[6],
+                               "Hard"=my.hard.col[6])) +
+    xlab("") + ylab("partialS/HIC sub-windows proportion") + theme_classic() + 
+    labs(fill = "Genomic class") + 
+    theme(axis.text = element_text(size=12),axis.title = element_text(size=13), 
+          legend.text = element_text(size=11))
+
+ggsave('different_scenario_comparision.pdf', width=8, height=7, dpi=250, unit='in')
+
+```
+
+
+## More bottlenecks
+
+
+```{r}
+#setwd('~/myData/phd/p2/discoal_simu')
+options(scipen = 999)
+library("parallel")
+library("stringr")
+library("dplyr")
+DISCOAL = '~/discoal/discoal'
+# for neutral; for sweep: TIMEs/5, must (TIMEs/5)*11 > TIMEs
+# I modified the sampling function in training_sample_FVs.py to 
+# make the final training size the same (TIMES) for each sweep state
+TIMES = 200
+
+Ne = 1*10^6
+len = 55000
+
+# recombination rate
+rr = 5*10^(-9)
+Pre_mean <- 4*Ne*rr*len
+Pre_upper <- Pre_mean*3
+# mutation rate mu: 
+mu_low = 1e-9
+mu_high = 1.6e-8
+Pt_low <- 4*Ne*mu_low*len
+Pt_high <- 4*Ne*mu_high*len
+# selection coefficient s: 0.0001-0.1
+# strength of selection: alpha = 2*Ne*s
+s_low = 0.00001
+s_high = 0.01
+Pa_low <- 2*Ne*s_low
+Pa_high <- 2*Ne*s_high
+
+# tau: time of fixation looking backward in time - units: 4N
+Pu_low <- 0.0
+Pu_high <- 0.01
+
+# for soft seletive sweep
+# first frequency at which selection acts on allele
+Pf_low <- 0.01
+Pf_high <- 0.2
+
+
+# partial sweep
+# frequency at sampling
+Pc_low <- 0.20 
+Pc_high <- 0.99
+
+
+sweep_pos <- c(0.04, 0.14, 0.23, 0.32, 0.41, 0.50, 
+               0.60, 0.68, 0.77, 0.86, 0.95)
+#bottleneck <- "-en 0.16 0 0.589 -en 0.216 0 1.47" # long shallow
+#bottleneck <- "-en 0.33 0 0.033 -en 0.34 0 1.00" # short severe
+bottles <- vector()
+
+for (bs in seq(0.01,0.5,0.1)){
+    for(bl in seq(0.01,0.5,0.1)){
+        for(nc in seq(0.01,0.5,0.1)){
+            be = bs + bl
+            en <- str_glue("-en {bs} 0 {nc} -en {be} 0 1")
+            bottles <- c(bottles, en)
+        }
+    }
+}
+
+
+outfile = 'sim_bottlenecks.cmd'
+cmd_file <- file(outfile, open='a')
+
+for (bb in bottles){
+    uu <- str_replace_all(bb, '-en ','') %>% str_replace_all(., ' ','_')
+    dir <- paste0('en_',uu)
+    dir.create(dir)
+    h1 <- str_glue("{DISCOAL} 110 {TIMES} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bb}")
+    h2 <- str_glue("{DISCOAL} 110 {TIMES/5} {len} -Pt {Pt_low} {Pt_high} -Pre {Pre_mean} {Pre_upper} {bb}")
+    
+    # for NEUTRAL
+    runNeutral <- str_glue("{h1} | gzip > ./{dir}/spNeut.msOut.gz")
+    cat(runNeutral, file=cmd_file, sep="\n")
+    
+    # for complete HARD
+    for(i in 1:11){
+        outname <- str_glue("./{dir}/spHard_{i-1}.msOut.gz")
+        if(i==6){
+            sm_cmd <- str_glue("{h1} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -x {sweep_pos[i]} | gzip > {outname}")
+        }else{
+            sm_cmd <- str_glue("{h2} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -x {sweep_pos[i]} | gzip > {outname}")
+        }
+        cat(sm_cmd, file=cmd_file, sep="\n")
+    }
+    # for complated soft
+    for(i in 1:11){
+        outname <- str_glue("./{dir}/spSoft_{i-1}.msOut.gz")
+        if(i==6){
+            sm_cmd <- str_glue("{h1} -ws 0  -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname}")
+        }else{
+            sm_cmd <- str_glue("{h2} -ws 0  -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname}")
+        }
+        cat(sm_cmd, file=cmd_file, sep="\n")
+    }
+    # for partialhard
+    for(i in 1:11){
+        outname <- str_glue("./{dir}/spPartialHard_{i-1}.msOut.gz")
+        if(i==6){
+            sm_cmd <- str_glue("{h1} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -x {sweep_pos[i]} | gzip > {outname}")
+        }else{
+            sm_cmd <- str_glue("{h2} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -x {sweep_pos[i]} | gzip > {outname}")
+        }
+        cat(sm_cmd, file=cmd_file, sep="\n")
+    }
+    # for partialSoft
+    for(i in 1:11){
+        outname <- str_glue("./{dir}/spPartialSoft_{i-1}.msOut.gz")
+        if(i==6){
+            sm_cmd <- str_glue("{h1} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname}")
+        }else{
+            sm_cmd <- str_glue("{h2} -ws 0 -Pa {Pa_low} {Pa_high} -Pu {Pu_low} {Pu_high} -Pc {Pc_low} {Pc_high} -Pf {Pf_low} {Pf_high} -x {sweep_pos[i]} | gzip > {outname}")
+        }
+        cat(sm_cmd, file=cmd_file, sep="\n")
+    }
+    
+}
+close(cmd_file)
+
+ff  <- readLines(outfile)
+parallel::mclapply(ff, system, mc.cores=28)
+
+```
+
+
+
+msOut to fvec
+
+```{bash}
+
+cd ~/myData/phd/p2/discoal_simu_partialSHIC/more_bottlenecks
+
+conda activate py2
+
+####
+
+gen_fvec() {
+    line=0
+    if [[ -f ${1/.msOut.gz/}.fvec ]]; then
+    line=$(wc -l ${1/.msOut.gz/}.fvec | cut -d ' ' -f 1)
+    fi
+    if [[ $line -eq 201 || $line -eq 41 ]];then
+    echo ${1/.msOut.gz/}.fvec have finished
+    else
+        echo ${1/.msOut.gz/}.fvec not yet
+    python2 ~/partialSHIC/calcStatsAndDafForEachSnpSingleMsFile.py ${1} 55000 > ${1/.msOut.gz/}_stats.txt
+    python2 ~/partialSHIC/training_convert_to_FVs.py ${1} \
+    ScA8VGg_76,ScA8VGg_785,ScA8VGg_628,ScA8VGg_594,ScA8VGg_542,ScA8VGg_718 \
+    5000 11 0.25 \
+    0.003 ${1/.msOut.gz/}_stats.txt \
+    ../empiricalDat/top6.mask.fa \
+    ../empiricalDat/top6.anc.fa \
+    ${1%%sp*} \
+    ${1/.msOut.gz/}.fvec
+    fi
+    
+    
+}
+export -f gen_fvec
+find . -name *msOut.gz | parallel -j 45 gen_fvec
+
+
+runTest(){
+    echo ${1}
+    rm ${1}/*stats
+    rm ${1}/*_stats.txt
+    mkdir ${1}/FVs
+    mv ${1}/*fvec ${1}/FVs
+    python3 ~/partialSHIC/testing_deep_learning_classify.py \
+    ../../discoal_simu_partialSHIC/expansionNe/expansionNe.npy \
+    ${1}/FVs \
+    11 92 \
+    ${1}/ \
+    expansionNe_accuracy \
+    expansionNe_confusion_matrix.pdf
+}
+
+export -f runTest
+
+find . -type d -name en_* | parallel -j 1 runTest
+
+
+```
